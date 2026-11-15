@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>G-ns</title>
+  <style>
+    * { box-sizing: border-box; }
+    html, body { margin: 0; height: 100%; overflow: hidden; background: #111; color: #eee;
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; }
+    canvas { display: block; cursor: crosshair; }
+    #join { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center;
+      background: rgba(0,0,0,.75); z-index: 10; }
+    #join form { background: #1d1f24; padding: 32px; border-radius: 12px; text-align: center;
+      width: min(360px, 90vw); box-shadow: 0 10px 40px rgba(0,0,0,.5); }
+    #join h1 { margin: 0 0 4px; font-size: 40px; letter-spacing: 2px; }
+    #join p { margin: 0 0 20px; color: #999; font-size: 14px; }
+    #join input { width: 100%; padding: 12px; font-size: 16px; border-radius: 8px; border: 1px solid #333;
+      background: #111; color: #eee; margin-bottom: 12px; }
+    #join button { width: 100%; padding: 12px; font-size: 16px; font-weight: 600; border: 0; border-radius: 8px;
+      background: #e6194b; color: #fff; cursor: pointer; }
+    #join small { display: block; margin-top: 16px; color: #777; line-height: 1.5; }
+    #scoreboard { position: fixed; top: 10px; right: 10px; background: rgba(0,0,0,.55); padding: 8px 12px;
+      border-radius: 8px; font-size: 13px; min-width: 170px; pointer-events: none; }
+    #scoreboard div { display: flex; justify-content: space-between; gap: 12px; }
+    #scoreboard .me { font-weight: 700; }
+    #feed { position: fixed; top: 10px; left: 10px; font-size: 13px; pointer-events: none; }
+    #feed div { background: rgba(0,0,0,.55); padding: 4px 8px; border-radius: 6px; margin-bottom: 4px; }
+    #status { position: fixed; bottom: 10px; left: 50%; transform: translateX(-50%); font-size: 13px; color: #888; }
+  </style>
+</head>
+<body>
+  <div id="join">
+    <form id="joinForm">
+      <h1>G-ns</h1>
+      <p>Online top-down shooter</p>
+      <input id="name" maxlength="16" placeholder="Your name" autocomplete="off" autofocus>
+      <button type="submit">Play</button>
+      <small>WASD / arrows to move · mouse to aim · click to shoot</small>
+    </form>
+  </div>
+  <canvas id="game"></canvas>
+  <div id="feed"></div>
+  <div id="scoreboard"></div>
+  <div id="status"></div>
+  <script src="game.js"></script>
+</body>
+</html>
