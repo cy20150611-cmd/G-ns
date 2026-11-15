@@ -3,8 +3,8 @@ import * as THREE from 'three';
 
 const mat = (color, rough = 0.7, metal = 0.1) => new THREE.MeshStandardMaterial({ color, roughness: rough, metalness: metal });
 const M = {
-  metal: mat(0x26282c, 0.45, 0.6),
-  metal2: mat(0x3d4046, 0.5, 0.5),
+  metal: mat(0x3a3e45, 0.5, 0.25),
+  metal2: mat(0x52575f, 0.55, 0.2),
   wood: mat(0x6b4526, 0.8, 0),
   tan: mat(0x8a7a5a, 0.8, 0.05),
   glove: mat(0x1d1f22, 0.9, 0),
@@ -66,6 +66,12 @@ export function buildGun(type) {
     box(0.038, 0.13, 0.05, M.metal2, 0, -0.03, 0.02, g).rotation.x = -0.2;
     box(0.015, 0.02, 0.02, M.metal2, 0, 0.09, -0.15, g);
     muzzleZ = -0.18;
+  } else if (type === 'knife') {
+    box(0.03, 0.035, 0.1, M.metal, 0, 0, 0.0, g);                // handle
+    box(0.06, 0.05, 0.015, M.metal2, 0, 0.0, -0.055, g);         // guard
+    const blade = box(0.008, 0.035, 0.2, mat(0xc9ced6, 0.25, 0.9), 0, 0.005, -0.16, g);
+    blade.rotation.x = 0.03;
+    muzzleZ = -0.27;
   } else if (type === 'sniper') {
     box(0.07, 0.09, 0.45, M.metal, 0, 0.02, -0.08, g);
     cyl(0.017, 0.65, M.metal, 0, 0.03, -0.62, g);
@@ -86,7 +92,7 @@ export function buildGun(type) {
 }
 
 // Height of the iron sight / scope above the gun origin, used for aiming down sights.
-export const SIGHT_HEIGHT = { rifle: 0.11, smg: 0.1, shotgun: 0.085, pistol: 0.1, sniper: 0.11 };
+export const SIGHT_HEIGHT = { rifle: 0.11, smg: 0.1, shotgun: 0.085, pistol: 0.1, sniper: 0.11, knife: 0.05 };
 
 // ---------- First-person view: arms + gun ----------
 export class ViewModel {
@@ -96,7 +102,7 @@ export class ViewModel {
     this.root.add(this.holder);
     this.sleeve = mat(sleeveColor, 0.9, 0);
     this.guns = {};
-    for (const t of ['rifle', 'smg', 'shotgun', 'pistol', 'sniper']) {
+    for (const t of ['rifle', 'smg', 'shotgun', 'pistol', 'sniper', 'knife']) {
       const gun = buildGun(t);
       gun.traverse(o => { o.castShadow = false; });
       gun.visible = false;
@@ -137,7 +143,8 @@ export class ViewModel {
     gun.visible = true;
     const pistol = t === 'pistol';
     // left hand position along the gun
-    const front = { rifle: -0.32, smg: -0.25, shotgun: -0.38, pistol: 0.02, sniper: -0.3 }[t];
+    const front = { rifle: -0.32, smg: -0.25, shotgun: -0.38, pistol: 0.02, sniper: -0.3, knife: 0 }[t];
+    this.lArm.visible = t !== 'knife';
     this.lArm.position.set(pistol ? -0.01 : 0, pistol ? -0.04 : -0.02, front);
     this.lArm.rotation.set(0, pistol ? 0.2 : 0, 0);
     const muzzle = gun.getObjectByName('muzzle');
@@ -169,14 +176,17 @@ function nameSprite(text, color) {
   return s;
 }
 
+const UNDEAD = { skin: mat(0x7d9a5c, 0.95, 0), rags: mat(0x3a3530, 1, 0), eye: new THREE.MeshBasicMaterial({ color: 0x9dff4a }) };
+
 export class Avatar {
-  constructor(id) {
+  constructor(id, undead = false) {
     this.id = id;
+    this.undead = undead;
     this.root = new THREE.Group();
     this.body = new THREE.Group();     // lowered for crouch, rotated when dead
     this.root.add(this.body);
-    this.shirt = mat(0x888888, 0.9, 0);
-    const skin = mat(SKIN[id % SKIN.length], 0.8, 0);
+    this.shirt = undead ? UNDEAD.rags : mat(0x888888, 0.9, 0);
+    const skin = undead ? UNDEAD.skin : mat(SKIN[id % SKIN.length], 0.8, 0);
 
     this.hips = new THREE.Group();
     this.hips.position.y = 0.95;
@@ -200,7 +210,8 @@ export class Avatar {
     this.spine = new THREE.Group();
     this.hips.add(this.spine);
     box(0.46, 0.6, 0.26, this.shirt, 0, 0.3, 0, this.spine);         // torso
-    box(0.5, 0.42, 0.3, M.vest, 0, 0.36, 0, this.spine);             // vest
+    if (!undead) box(0.5, 0.42, 0.3, M.vest, 0, 0.36, 0, this.spine);             // vest
+    else box(0.3, 0.2, 0.27, skin, 0.08, 0.15, -0.01, this.spine);                 // torn shirt showing skin
     box(0.48, 0.08, 0.28, M.boot, 0, 0.02, 0, this.spine);           // belt
 
     this.head = new THREE.Group();
@@ -208,10 +219,14 @@ export class Avatar {
     this.spine.add(this.head);
     box(0.12, 0.08, 0.12, skin, 0, 0.02, 0, this.head);              // neck
     box(0.27, 0.3, 0.27, skin, 0, 0.2, 0, this.head);                // head
-    box(0.31, 0.13, 0.31, M.helmet, 0, 0.36, 0.01, this.head);       // helmet
-    box(0.33, 0.03, 0.34, M.helmet, 0, 0.3, 0, this.head);
-    box(0.05, 0.035, 0.02, M.eye, -0.065, 0.23, -0.136, this.head);
-    box(0.05, 0.035, 0.02, M.eye, 0.065, 0.23, -0.136, this.head);
+    if (!undead) {
+      box(0.31, 0.13, 0.31, M.helmet, 0, 0.36, 0.01, this.head);       // helmet
+      box(0.33, 0.03, 0.34, M.helmet, 0, 0.3, 0, this.head);
+    }
+    const eyeMat = undead ? UNDEAD.eye : M.eye;
+    box(0.05, 0.035, 0.02, eyeMat, -0.065, 0.23, -0.136, this.head);
+    box(0.05, 0.035, 0.02, eyeMat, 0.065, 0.23, -0.136, this.head);
+    if (undead) box(0.12, 0.03, 0.02, M.eye, 0, 0.11, -0.136, this.head); // mouth
 
     const arm = (side, upperRot, foreRot, yaw) => {
       const sh = new THREE.Group();
@@ -227,8 +242,13 @@ export class Avatar {
       this.spine.add(sh);
       return sh;
     };
-    this.armR = arm(1, 0.9, 0.7, 0.15);
-    this.armL = arm(-1, 1.25, 0.35, -0.55);
+    if (undead) {           // arms stretched forward
+      this.armR = arm(1, 1.45, 0.1, 0.05);
+      this.armL = arm(-1, 1.35, 0.15, -0.05);
+    } else {
+      this.armR = arm(1, 0.9, 0.7, 0.15);
+      this.armL = arm(-1, 1.25, 0.35, -0.55);
+    }
 
     this.gunHolder = new THREE.Group();
     this.gunHolder.position.set(0.1, 0.36, -0.42);
@@ -294,7 +314,7 @@ export class Avatar {
     const speed = Math.hypot(this.display.x - before.x, this.display.z - before.z) / Math.max(dt, 1e-4);
     this.crouchAmt += ((s.c ? 1 : 0) - this.crouchAmt) * Math.min(1, dt * 12);
     this.slideAmt += ((s.s ? 1 : 0) - this.slideAmt) * Math.min(1, dt * 12);
-    this.setWeapon(s.w);
+    if (!this.undead) this.setWeapon(s.w);
 
     // death fall
     if (s.dead) {

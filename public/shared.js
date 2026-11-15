@@ -92,18 +92,79 @@
     pistol:  { name: 'Pistol',        damage: 32, fireDelay: 0.22,  auto: false, mag: 12, reload: 1.3, spread: 0.01,  pellets: 1, range: 60,  falloffStart: 20,  headMult: 1.8, recoil: 0.02,  zoom: 1.3 },
     sniper:  { name: 'Sniper',        damage: 95, fireDelay: 1.3,   auto: false, mag: 5,  reload: 2.6, spread: 0.001, pellets: 1, range: 250, falloffStart: 200, headMult: 2.0, recoil: 0.07,  zoom: 4 },
   };
-  const WEAPON_KEYS = ['rifle', 'smg', 'shotgun', 'pistol', 'sniper'];
+  WEAPONS.knife = { name: 'Knife', melee: true, damage: 55, fireDelay: 0.45, auto: false, mag: Infinity, reload: 0, spread: 0, pellets: 1, range: 2.6, falloffStart: 99, headMult: 1.3, recoil: 0, zoom: 1 };
+  const WEAPON_KEYS = ['rifle', 'smg', 'shotgun', 'pistol', 'sniper', 'knife'];
 
-  const GUNGAME_ORDER = ['smg', 'rifle', 'shotgun', 'pistol', 'sniper'];
+  // The 4 classes ("sets") players can pick
+  const CLASSES = {
+    rifle:    { name: 'Rifleman',        weapons: ['rifle', 'pistol'],  hp: 100, speed: 1.0,  desc: 'Assault rifle + pistol. Good at every range.' },
+    close:    { name: 'Close Combat',    weapons: ['shotgun', 'knife'], hp: 125, speed: 1.12, desc: 'Shotgun + knife. More health, runs faster.' },
+    sniper:   { name: 'Sniper',          weapons: ['sniper', 'pistol'], hp: 90,  speed: 1.0,  desc: 'Sniper rifle + pistol. One headshot = one kill.' },
+    summoner: { name: 'Undead Summoner', weapons: ['smg', 'knife'],     hp: 100, speed: 1.0,  desc: 'SMG + knife. Press Q to raise 3 undead that hunt enemies.', ability: true },
+  };
+  const SUMMON = { count: 3, cooldown: 20, life: 25, hp: 50, damage: 12, hitDelay: 1.0, speed: 4.3 };
+
+  const GUNGAME_ORDER = ['smg', 'rifle', 'shotgun', 'pistol', 'sniper', 'knife'];
   const GUNGAME_KILLS_PER_LEVEL = 2;
 
   const MODES = {
     ffa: { name: 'Free For All', short: 'FFA', scoreLimit: 25, desc: 'Everyone vs everyone. First to 25 kills wins.' },
     tdm: { name: 'Team Deathmatch', short: 'TDM', scoreLimit: 50, desc: 'Red vs Blue. First team to 50 kills wins.' },
-    gungame: { name: 'Gun Game', short: 'GUN GAME', scoreLimit: 0, desc: `Get ${GUNGAME_KILLS_PER_LEVEL} kills to get the next gun. Finish the sniper to win.` },
+    gungame: { name: 'Gun Game', short: 'GUN GAME', scoreLimit: 0, desc: `Get ${GUNGAME_KILLS_PER_LEVEL} kills to get the next gun. Win with a knife kill at the end!` },
   };
 
-  const api = { MAP, WEAPONS, WEAPON_KEYS, GUNGAME_ORDER, GUNGAME_KILLS_PER_LEVEL, MODES };
+  // ---------- shared physics (players, bots and undead all move with this) ----------
+  const GRAVITY = 22, STEP = 0.55;
+  function collides(x, y, z, r, h) {
+    for (const b of boxes) {
+      if (x + r > b.x && x - r < b.x + b.w && z + r > b.z && z - r < b.z + b.d &&
+          y + h > b.y + 1e-4 && y < b.y + b.h - 1e-4) return b;
+    }
+    return null;
+  }
+  function floorUnder(x, z, r, fromY, maxY) {
+    let top = fromY;
+    for (const b of boxes) {
+      if (x + r > b.x && x - r < b.x + b.w && z + r > b.z && z - r < b.z + b.d) {
+        const t = b.y + b.h;
+        if (t > top && t <= maxY + 1e-4) top = t;
+      }
+    }
+    return top;
+  }
+  // body: {x,y,z,vx,vy,vz,r,h,onGround}
+  function moveBody(b, dt) {
+    b.vy -= GRAVITY * dt;
+    const grounded = b.onGround;
+    b.blocked = false;
+    for (let axis = 0; axis < 2; axis++) {
+      const v = axis === 0 ? b.vx : b.vz;
+      if (!v) continue;
+      const nx = axis === 0 ? b.x + v * dt : b.x;
+      const nz = axis === 1 ? b.z + v * dt : b.z;
+      if (!collides(nx, b.y, nz, b.r, b.h)) { b.x = nx; b.z = nz; continue; }
+      if (grounded && !collides(nx, b.y + STEP, nz, b.r, b.h)) {
+        b.x = nx; b.z = nz;
+        b.y = floorUnder(nx, nz, b.r, b.y, b.y + STEP);
+        continue;
+      }
+      if (axis === 0) b.vx = 0; else b.vz = 0;
+      b.blocked = true;
+    }
+    b.onGround = false;
+    const ny = b.y + b.vy * dt;
+    let hit = collides(b.x, ny, b.z, b.r, b.h);
+    if (!hit) { b.y = ny; return; }
+    if (b.vy < 0) {
+      b.y = floorUnder(b.x, b.z, b.r, -50, b.y + 0.05);
+      b.onGround = true;
+    } else {
+      b.y = hit.y - b.h - 1e-3;
+    }
+    b.vy = 0;
+  }
+
+  const api = { MAP, WEAPONS, WEAPON_KEYS, CLASSES, SUMMON, GUNGAME_ORDER, GUNGAME_KILLS_PER_LEVEL, MODES, collides, moveBody, GRAVITY };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.GNS = api;
 })(typeof window !== 'undefined' ? window : globalThis);
