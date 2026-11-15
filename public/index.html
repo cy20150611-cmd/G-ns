@@ -6,43 +6,127 @@
   <title>G-ns</title>
   <style>
     * { box-sizing: border-box; }
-    html, body { margin: 0; height: 100%; overflow: hidden; background: #111; color: #eee;
-      font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; }
-    canvas { display: block; cursor: crosshair; }
-    #join { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center;
-      background: rgba(0,0,0,.75); z-index: 10; }
-    #join form { background: #1d1f24; padding: 32px; border-radius: 12px; text-align: center;
-      width: min(360px, 90vw); box-shadow: 0 10px 40px rgba(0,0,0,.5); }
-    #join h1 { margin: 0 0 4px; font-size: 40px; letter-spacing: 2px; }
-    #join p { margin: 0 0 20px; color: #999; font-size: 14px; }
-    #join input { width: 100%; padding: 12px; font-size: 16px; border-radius: 8px; border: 1px solid #333;
-      background: #111; color: #eee; margin-bottom: 12px; }
-    #join button { width: 100%; padding: 12px; font-size: 16px; font-weight: 600; border: 0; border-radius: 8px;
-      background: #e6194b; color: #fff; cursor: pointer; }
-    #join small { display: block; margin-top: 16px; color: #777; line-height: 1.5; }
-    #scoreboard { position: fixed; top: 10px; right: 10px; background: rgba(0,0,0,.55); padding: 8px 12px;
-      border-radius: 8px; font-size: 13px; min-width: 170px; pointer-events: none; }
-    #scoreboard div { display: flex; justify-content: space-between; gap: 12px; }
-    #scoreboard .me { font-weight: 700; }
-    #feed { position: fixed; top: 10px; left: 10px; font-size: 13px; pointer-events: none; }
-    #feed div { background: rgba(0,0,0,.55); padding: 4px 8px; border-radius: 6px; margin-bottom: 4px; }
-    #status { position: fixed; bottom: 10px; left: 50%; transform: translateX(-50%); font-size: 13px; color: #888; }
+    html, body { margin: 0; height: 100%; overflow: hidden; background: #0b0d10; color: #eee;
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; user-select: none; }
+    canvas { display: block; }
+    .hidden { display: none !important; }
+
+    /* menu */
+    #menu { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center;
+      background: radial-gradient(ellipse at center, rgba(20,24,30,.75), rgba(0,0,0,.92)); z-index: 20; }
+    .panel { background: #171a20; border: 1px solid #2a2f38; padding: 28px; border-radius: 14px; width: min(420px, 92vw);
+      box-shadow: 0 20px 60px rgba(0,0,0,.6); text-align: center; }
+    .panel h1 { margin: 0; font-size: 52px; letter-spacing: 4px; font-weight: 900; }
+    .panel h1 span { color: #ff3b3b; }
+    .panel .sub { color: #8a93a3; margin: 4px 0 20px; }
+    .panel input { width: 100%; padding: 12px; font-size: 16px; border-radius: 8px; border: 1px solid #333a45;
+      background: #0e1014; color: #eee; margin-bottom: 10px; }
+    .panel button { width: 100%; padding: 13px; font-size: 16px; font-weight: 700; border: 0; border-radius: 8px;
+      background: #ff3b3b; color: #fff; cursor: pointer; margin-bottom: 8px; }
+    .panel button.secondary { background: #2a2f38; }
+    .panel button:hover { filter: brightness(1.1); }
+    .modeinfo { background: #0e1014; border-radius: 8px; padding: 10px; margin: 6px 0 14px; font-size: 14px; color: #c9d1dd; }
+    .modeinfo b { color: #ffcf3b; }
+    .controls { display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; text-align: left; font-size: 13px;
+      color: #9aa3b2; margin-top: 12px; }
+    .controls kbd { background: #2a2f38; border-radius: 4px; padding: 1px 6px; color: #eee; font-family: inherit; font-size: 12px; }
+    #msg { font-size: 13px; color: #ffcf3b; min-height: 18px; }
+
+    /* HUD */
+    #hud { position: fixed; inset: 0; pointer-events: none; z-index: 10; }
+    #crosshair { position: absolute; left: 50%; top: 50%; }
+    #crosshair i { position: absolute; background: #fff; box-shadow: 0 0 2px #000; }
+    #hitmarker { position: absolute; left: 50%; top: 50%; width: 24px; height: 24px; margin: -12px; opacity: 0; transition: opacity .15s; }
+    #hitmarker::before, #hitmarker::after { content: ''; position: absolute; left: 11px; top: 0; width: 2px; height: 24px; background: #fff; }
+    #hitmarker::before { transform: rotate(45deg); } #hitmarker::after { transform: rotate(-45deg); }
+    #hitmarker.head::before, #hitmarker.head::after { background: #ff3b3b; }
+    #topbar { position: absolute; top: 10px; left: 50%; transform: translateX(-50%); display: flex; gap: 8px; align-items: center;
+      background: rgba(0,0,0,.55); padding: 6px 14px; border-radius: 10px; font-weight: 700; }
+    #topbar .mode { color: #ffcf3b; }
+    #topbar .red { color: #ff5a4f; } #topbar .blue { color: #4f9bff; }
+    #feed { position: absolute; top: 10px; right: 10px; font-size: 13px; text-align: right; }
+    #feed div { background: rgba(0,0,0,.55); padding: 4px 9px; border-radius: 6px; margin-bottom: 4px; }
+    #feed .w { color: #aaa; margin: 0 6px; }
+    #bottomleft { position: absolute; left: 16px; bottom: 16px; }
+    #hpbar { width: 240px; height: 22px; background: rgba(0,0,0,.6); border-radius: 6px; overflow: hidden; position: relative; }
+    #hpfill { height: 100%; background: #3ccf5a; width: 100%; transition: width .15s; }
+    #hptext { position: absolute; inset: 0; display: flex; align-items: center; padding-left: 8px; font-weight: 800; font-size: 13px; }
+    #bottomright { position: absolute; right: 16px; bottom: 16px; text-align: right; }
+    #ammo { font-size: 36px; font-weight: 900; text-shadow: 0 2px 4px #000; }
+    #ammo small { font-size: 18px; color: #aaa; }
+    #wname { font-size: 14px; color: #ddd; text-shadow: 0 1px 2px #000; }
+    #reloading { color: #ffcf3b; font-weight: 700; font-size: 14px; }
+    #weapons { display: flex; gap: 6px; justify-content: flex-end; margin-top: 6px; }
+    #weapons div { background: rgba(0,0,0,.5); padding: 3px 8px; border-radius: 5px; font-size: 12px; color: #999; }
+    #weapons div.on { background: rgba(255,59,59,.85); color: #fff; }
+    #ggbar { font-size: 14px; color: #ffcf3b; font-weight: 700; text-shadow: 0 1px 2px #000; }
+    #vignette { position: absolute; inset: 0; box-shadow: inset 0 0 160px rgba(255,0,0,.85); opacity: 0; transition: opacity .3s; }
+    #scope { position: absolute; inset: 0; background: radial-gradient(circle at center, transparent 0, transparent 34vh, #000 34.2vh); }
+    #scope::before { content: ''; position: absolute; left: 0; right: 0; top: 50%; height: 1px; background: #000; }
+    #scope::after { content: ''; position: absolute; top: 0; bottom: 0; left: 50%; width: 1px; background: #000; }
+    #center { position: absolute; left: 50%; top: 38%; transform: translate(-50%, -50%); text-align: center; text-shadow: 0 2px 6px #000; }
+    #center h2 { margin: 0; font-size: 40px; }
+    #center p { margin: 6px 0 0; font-size: 18px; color: #ddd; }
+    #scoreboard { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); background: rgba(10,12,16,.9);
+      border-radius: 12px; padding: 16px 20px; min-width: min(560px, 94vw); }
+    #scoreboard table { width: 100%; border-collapse: collapse; font-size: 14px; }
+    #scoreboard th { text-align: left; color: #8a93a3; font-weight: 600; padding: 4px 8px; }
+    #scoreboard td { padding: 5px 8px; border-top: 1px solid #22262e; }
+    #scoreboard tr.me td { background: rgba(255,255,255,.07); font-weight: 700; }
+    #scoreboard h3 { margin: 0 0 8px; }
   </style>
+  <script src="shared.js"></script>
+  <script type="importmap">
+    { "imports": { "three": "/vendor/three.module.js" } }
+  </script>
 </head>
 <body>
-  <div id="join">
-    <form id="joinForm">
-      <h1>G-ns</h1>
-      <p>Online top-down shooter</p>
-      <input id="name" maxlength="16" placeholder="Your name" autocomplete="off" autofocus>
-      <button type="submit">Play</button>
-      <small>WASD / arrows to move · mouse to aim · click to shoot</small>
-    </form>
+  <div id="menu">
+    <div class="panel">
+      <h1>G<span>-</span>NS</h1>
+      <div class="sub">3D online shooter</div>
+      <div class="modeinfo" id="modeinfo">Connecting…</div>
+      <input id="name" maxlength="16" placeholder="Your nickname" autocomplete="off">
+      <button id="play">PLAY</button>
+      <button id="rename" class="secondary hidden">Change name</button>
+      <div id="msg"></div>
+      <div class="controls">
+        <kbd>W A S D</kbd><span>Move</span>
+        <kbd>Mouse</kbd><span>Look / aim</span>
+        <kbd>Left click</kbd><span>Shoot</span>
+        <kbd>Right click</kbd><span>Aim down sights / scope</span>
+        <kbd>Shift</kbd><span>Sprint</span>
+        <kbd>Space</kbd><span>Jump</span>
+        <kbd>C</kbd><span>Crouch (while sprinting = slide)</span>
+        <kbd>R</kbd><span>Reload</span>
+        <kbd>1 – 5</kbd><span>Switch gun</span>
+        <kbd>Tab</kbd><span>Scoreboard</span>
+        <kbd>Esc</kbd><span>Menu / change name</span>
+      </div>
+    </div>
   </div>
-  <canvas id="game"></canvas>
-  <div id="feed"></div>
-  <div id="scoreboard"></div>
-  <div id="status"></div>
-  <script src="game.js"></script>
+
+  <div id="hud" class="hidden">
+    <div id="scope" class="hidden"></div>
+    <div id="vignette"></div>
+    <div id="crosshair"><i></i><i></i><i></i><i></i></div>
+    <div id="hitmarker"></div>
+    <div id="topbar"></div>
+    <div id="feed"></div>
+    <div id="center"></div>
+    <div id="bottomleft">
+      <div id="hpbar"><div id="hpfill"></div><div id="hptext">100</div></div>
+    </div>
+    <div id="bottomright">
+      <div id="ggbar"></div>
+      <div id="reloading"></div>
+      <div id="ammo">30<small> / 30</small></div>
+      <div id="wname">Assault Rifle</div>
+      <div id="weapons"></div>
+    </div>
+    <div id="scoreboard" class="hidden"></div>
+  </div>
+
+  <script type="module" src="main.js"></script>
 </body>
 </html>
