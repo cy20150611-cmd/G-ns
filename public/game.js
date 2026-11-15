@@ -87,7 +87,12 @@ const KEYMAP = {
   KeyW: 'up', ArrowUp: 'up', KeyS: 'down', ArrowDown: 'down',
   KeyA: 'left', ArrowLeft: 'left', KeyD: 'right', ArrowRight: 'right',
 };
-window.addEventListener('keydown', e => { if (KEYMAP[e.code]) { keys[KEYMAP[e.code]] = true; e.preventDefault(); } });
+const typing = e => e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement;
+window.addEventListener('keydown', e => {
+  if (typing(e) || !KEYMAP[e.code]) return;
+  keys[KEYMAP[e.code]] = true;
+  e.preventDefault();
+});
 window.addEventListener('keyup', e => { if (KEYMAP[e.code]) keys[KEYMAP[e.code]] = false; });
 canvas.addEventListener('mousemove', e => { mouse.x = e.clientX; mouse.y = e.clientY; });
 canvas.addEventListener('mousedown', e => { if (e.button === 0) mouse.down = true; });
