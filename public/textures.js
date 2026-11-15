@@ -54,6 +54,15 @@ export function texture(kind, color) {
       ctx.fillStyle = 'rgba(255,255,255,.07)'; ctx.fillRect(x + 6, 0, 3, size);
     }
     noise(ctx, size, 1500, 0.1);
+  } else if (kind === 'leaf') {
+    for (let i = 0; i < 400; i++) {
+      ctx.fillStyle = `rgba(${Math.random() < 0.5 ? '20,60,30' : '90,140,80'},${Math.random() * 0.5})`;
+      ctx.beginPath(); ctx.arc(Math.random() * size, Math.random() * size, Math.random() * 10 + 3, 0, Math.PI * 2); ctx.fill();
+    }
+  } else if (kind === 'ice') {
+    noise(ctx, size, 1500, 0.06);
+    ctx.strokeStyle = 'rgba(255,255,255,.5)'; ctx.lineWidth = 2;
+    for (let i = 0; i < 8; i++) { ctx.beginPath(); ctx.moveTo(Math.random() * size, Math.random() * size); ctx.lineTo(Math.random() * size, Math.random() * size); ctx.stroke(); }
   } else { // concrete
     noise(ctx, size, 6000, 0.09);
     ctx.strokeStyle = 'rgba(0,0,0,.12)'; ctx.lineWidth = 2;
@@ -68,14 +77,14 @@ export function texture(kind, color) {
   return tex;
 }
 
-export function skyTexture() {
+export function skyTexture(colors = ['#3d6fb0', '#8fb8de', '#d9e4ea']) {
   const c = document.createElement('canvas');
   c.width = 4; c.height = 256;
   const ctx = c.getContext('2d');
   const g = ctx.createLinearGradient(0, 0, 0, 256);
-  g.addColorStop(0, '#3d6fb0');
-  g.addColorStop(0.5, '#8fb8de');
-  g.addColorStop(1, '#d9e4ea');
+  g.addColorStop(0, colors[0]);
+  g.addColorStop(0.5, colors[1]);
+  g.addColorStop(1, colors[2]);
   ctx.fillStyle = g;
   ctx.fillRect(0, 0, 4, 256);
   const tex = new THREE.CanvasTexture(c);

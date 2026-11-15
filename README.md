@@ -15,7 +15,7 @@ npm install
 npm start
 ```
 
-Open http://localhost:3000. Bots fill the game up to 20 players, so you always have someone to fight.
+Open http://localhost:3000. Pick a game mode and a map in the menu. Bots fill every match up to 20 players (6 in Undead Horde).
 
 ## Controls
 
@@ -30,32 +30,33 @@ Open http://localhost:3000. Bots fill the game up to 20 players, so you always h
 | Crouch (slide while sprinting) | C |
 | Reload | R |
 | Switch weapon | 1 / 2 or mouse wheel |
-| Summon undead (Undead Summoner) | Q |
+| Special (Medkit, Dash, Summon Undead) | Q |
 | Scoreboard | Tab |
-| Menu / change name / change class | Esc |
+| Menu | Esc |
 
-## Classes
+## Gun sets
 
-| Class | Weapons | Special |
-| --- | --- | --- |
-| Rifleman | Assault rifle + pistol | Good at every range |
-| Close Combat | Shotgun + knife | 125 HP, runs faster |
-| Sniper | Sniper rifle + pistol | Headshots kill instantly |
-| Undead Summoner | SMG + knife | Q raises 3 undead that hunt enemies |
+Build your own sets in the **Gun Sets** tab: name it, pick a main gun (Assault Rifle, SMG, Shotgun, Sniper, LMG, DMR), a second weapon (Pistol, Revolver, Knife), a special (Medkit, Dash, Summon Undead) and a color. Make as many as you want. Shared sets can be found by anyone with **Search**.
+
+Shared sets are stored in `data/sets.json` on the server (set `DATA_DIR` to change where). On Render's free plan that folder is wiped on every deploy.
 
 ## Game modes
 
-Matches last 5 minutes and rotate automatically:
+Free For All, Team Deathmatch, King of the Hill, Gun Game, Infection, Undead Horde (co-op waves), One Shot, Snipers Only and Knife Fight.
 
-- **Free For All**: first to 25 kills.
-- **Team Deathmatch**: Red vs Blue, first team to 50 kills.
-- **Gun Game**: 2 kills moves you to the next gun; win by finishing the knife level.
+## Maps
+
+Yard, Desert Town, Neon City and Snow Forts.
+
+## Gun models
+
+Put `.glb` files in `public/models/guns/` to replace the built-in guns. See the README in that folder.
 
 ## How it works
 
-- `server.js`: Node.js server. Checks every shot, runs health, kills, teams and game modes, and controls the bots and the undead (they find their way around the map with a path-finding grid).
-- `public/main.js`: the 3D first-person game in the browser, built with [three.js](https://threejs.org).
-- `public/models.js`: the 3D soldiers, undead, guns and first-person arms.
-- `public/shared.js`: map, weapons, classes and movement physics shared by the server and the browser.
+- `server.js`: Node.js server. One room per mode + map. Checks every shot; runs health, kills, teams, modes, bots and the undead (path-finding on a grid); stores shared gun sets.
+- `public/main.js`: menu, gun sets and the 3D first-person game in the browser, built with [three.js](https://threejs.org).
+- `public/models.js`: 3D soldiers, undead, guns, first-person arms and their animations.
+- `public/shared.js`: guns, gun sets, modes, maps and movement physics shared by server and browser.
 
 Set `PORT` to use a different port.

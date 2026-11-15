@@ -6,41 +6,80 @@
   <title>G-ns</title>
   <style>
     * { box-sizing: border-box; }
-    html, body { margin: 0; height: 100%; overflow: hidden; background: #0b0d10; color: #eee;
+    html, body { margin: 0; height: 100%; overflow: hidden; background: #0b0d10; color: #f2f2f7;
       font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; user-select: none; }
     canvas { display: block; }
     .hidden { display: none !important; }
+    button { font-family: inherit; cursor: pointer; }
+    input { font-family: inherit; }
 
-    /* menu */
-    #menu { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center;
-      background: radial-gradient(ellipse at center, rgba(20,24,30,.75), rgba(0,0,0,.92)); z-index: 20; }
-    .panel { background: #171a20; border: 1px solid #2a2f38; padding: 28px; border-radius: 14px; width: min(420px, 92vw);
-      box-shadow: 0 20px 60px rgba(0,0,0,.6); text-align: center; }
-    .panel h1 { margin: 0; font-size: 52px; letter-spacing: 4px; font-weight: 900; }
-    .panel h1 span { color: #ff3b3b; }
-    .panel .sub { color: #8a93a3; margin: 4px 0 20px; }
-    .panel input { width: 100%; padding: 12px; font-size: 16px; border-radius: 8px; border: 1px solid #333a45;
-      background: #0e1014; color: #eee; margin-bottom: 10px; }
-    .panel button { width: 100%; padding: 13px; font-size: 16px; font-weight: 700; border: 0; border-radius: 8px;
-      background: #ff3b3b; color: #fff; cursor: pointer; margin-bottom: 8px; }
-    .panel button.secondary { background: #2a2f38; }
-    .panel button:hover { filter: brightness(1.1); }
-    .modeinfo { background: #0e1014; border-radius: 8px; padding: 10px; margin: 6px 0 14px; font-size: 14px; color: #c9d1dd; }
-    .modeinfo b { color: #ffcf3b; }
-    .controls { display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; text-align: left; font-size: 13px;
-      color: #9aa3b2; margin-top: 12px; }
-    .controls kbd { background: #2a2f38; border-radius: 4px; padding: 1px 6px; color: #eee; font-family: inherit; font-size: 12px; }
-    .label { text-align: left; font-size: 13px; color: #8a93a3; margin: 4px 0 6px; }
-    #classes { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 12px; }
-    #classes button { margin: 0; padding: 10px 8px; background: #0e1014; border: 2px solid #2a2f38; text-align: left;
-      font-weight: 600; font-size: 14px; }
-    #classes button small { display: block; font-weight: 400; font-size: 11px; color: #8a93a3; margin-top: 3px; line-height: 1.3; }
-    #classes button.on { border-color: #ff3b3b; background: #23161a; }
-    .panel { max-height: 96vh; overflow-y: auto; }
-    #ability { font-size: 14px; font-weight: 700; text-shadow: 0 1px 2px #000; margin-bottom: 4px; }
-    #msg { font-size: 13px; color: #ffcf3b; min-height: 18px; }
+    /* ---------- main menu ---------- */
+    #menu { position: fixed; inset: 0; z-index: 20; display: flex; flex-direction: column;
+      background: linear-gradient(135deg, rgba(255,43,214,.55), rgba(77,124,255,.55) 45%, rgba(0,240,255,.45)), rgba(10,8,25,.75);
+      backdrop-filter: blur(3px); }
+    #menu header { display: flex; align-items: center; gap: 18px; padding: 14px 24px; flex-wrap: wrap; }
+    .logo { font-size: 46px; font-weight: 900; letter-spacing: 4px; line-height: 1;
+      background: linear-gradient(90deg, #ffe600, #ff6b00, #ff2bd6, #00f0ff, #39ff14, #ffe600); background-size: 300% 100%;
+      -webkit-background-clip: text; background-clip: text; color: transparent; animation: shine 6s linear infinite;
+      filter: drop-shadow(0 3px 0 rgba(0,0,0,.35)); }
+    @keyframes shine { to { background-position: 300% 0; } }
+    .tag { font-size: 13px; color: #fff; opacity: .85; }
+    nav { display: flex; gap: 8px; margin-left: auto; flex-wrap: wrap; }
+    nav button { border: 0; border-radius: 999px; padding: 10px 18px; font-weight: 800; font-size: 14px; color: #fff;
+      background: rgba(0,0,0,.35); }
+    nav button.on { background: #fff; color: #1b1033; }
+    #menu main { flex: 1; overflow-y: auto; padding: 4px 24px 24px; }
+    .tab { max-width: 1100px; margin: 0 auto; }
+    .card { background: rgba(14,10,30,.78); border: 1px solid rgba(255,255,255,.12); border-radius: 18px; padding: 18px; margin-bottom: 14px;
+      box-shadow: 0 10px 40px rgba(0,0,0,.35); }
+    .card h3 { margin: 0 0 12px; font-size: 16px; letter-spacing: .5px; text-transform: uppercase; color: #ffe600; }
+    .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+    .grow { flex: 1; min-width: 180px; }
+    .txt { width: 100%; padding: 12px 14px; font-size: 16px; border-radius: 12px; border: 2px solid rgba(255,255,255,.15);
+      background: rgba(0,0,0,.4); color: #fff; outline: none; }
+    .txt:focus { border-color: #00f0ff; }
+    .grid { display: grid; gap: 10px; }
+    .modes { grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); }
+    .maps { grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); }
+    .pick { border: 3px solid transparent; border-radius: 14px; padding: 12px; text-align: left; color: #fff; font-weight: 800;
+      font-size: 15px; position: relative; min-height: 78px; transition: transform .1s; }
+    .pick:hover { transform: translateY(-2px); }
+    .pick small { display: block; font-weight: 500; font-size: 11.5px; opacity: .9; margin-top: 4px; line-height: 1.3; }
+    .pick.on { border-color: #fff; box-shadow: 0 0 0 3px rgba(255,255,255,.25), 0 8px 24px rgba(0,0,0,.4); }
+    .pick .emoji { font-size: 22px; margin-right: 6px; }
+    .pick .count { position: absolute; top: 8px; right: 10px; font-size: 11px; background: rgba(0,0,0,.45); padding: 2px 7px; border-radius: 999px; }
+    .big { border: 0; border-radius: 16px; padding: 16px 40px; font-size: 22px; font-weight: 900; letter-spacing: 2px; color: #1b1033;
+      background: linear-gradient(90deg, #ffe600, #ff9f1a); box-shadow: 0 6px 0 #b35c00, 0 12px 30px rgba(0,0,0,.4); }
+    .big:active { transform: translateY(3px); box-shadow: 0 3px 0 #b35c00; }
+    .btn { border: 0; border-radius: 10px; padding: 10px 14px; font-weight: 800; color: #fff; background: rgba(255,255,255,.14); }
+    .btn.go { background: #3ddc84; color: #08210f; }
+    .btn.blue { background: #4d7cff; }
+    .btn.red { background: #ff4d4d; }
+    .btn.small { padding: 6px 10px; font-size: 12px; }
+    .chips { display: flex; gap: 6px; flex-wrap: wrap; }
+    .chip { border: 2px solid rgba(255,255,255,.18); background: rgba(0,0,0,.35); color: #fff; border-radius: 999px; padding: 7px 12px; font-weight: 700; font-size: 13px; }
+    .chip.on { background: #00f0ff; color: #001a1f; border-color: #00f0ff; }
+    .swatch { width: 30px; height: 30px; border-radius: 50%; border: 3px solid rgba(255,255,255,.3); }
+    .swatch.on { border-color: #fff; transform: scale(1.15); }
+    .setrow { display: flex; align-items: center; gap: 10px; padding: 10px; border-radius: 12px; background: rgba(255,255,255,.06); margin-bottom: 6px; }
+    .setrow .dot { width: 14px; height: 14px; border-radius: 50%; flex: none; }
+    .setrow .info { flex: 1; min-width: 0; }
+    .setrow .info b { display: block; }
+    .setrow .info span { font-size: 12px; opacity: .75; }
+    .setrow.on { outline: 2px solid #ffe600; }
+    .label { font-size: 12px; text-transform: uppercase; letter-spacing: .8px; opacity: .7; margin: 12px 0 6px; font-weight: 700; }
+    #msg { min-height: 20px; color: #ffe600; font-weight: 700; margin-top: 8px; }
+    .two { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+    @media (max-width: 800px) { .two { grid-template-columns: 1fr; } .logo { font-size: 34px; } }
+    .controls { display: grid; grid-template-columns: auto 1fr; gap: 6px 12px; font-size: 13px; }
+    .controls kbd { background: rgba(255,255,255,.15); border-radius: 6px; padding: 2px 8px; font-family: inherit; font-weight: 700; }
+    input[type=range] { width: 100%; accent-color: #ff2bd6; }
+    #ytbox { position: fixed; right: 12px; bottom: 12px; width: 240px; height: 135px; z-index: 30; border-radius: 10px; overflow: hidden;
+      box-shadow: 0 6px 20px rgba(0,0,0,.5); }
+    #ytbox iframe { width: 100%; height: 100%; border: 0; }
+    #ytbox.mini { width: 1px; height: 1px; opacity: 0; pointer-events: none; }
 
-    /* HUD */
+    /* ---------- HUD ---------- */
     #hud { position: fixed; inset: 0; pointer-events: none; z-index: 10; }
     #crosshair { position: absolute; left: 50%; top: 50%; }
     #crosshair i { position: absolute; background: #fff; box-shadow: 0 0 2px #000; }
@@ -48,74 +87,169 @@
     #hitmarker::before, #hitmarker::after { content: ''; position: absolute; left: 11px; top: 0; width: 2px; height: 24px; background: #fff; }
     #hitmarker::before { transform: rotate(45deg); } #hitmarker::after { transform: rotate(-45deg); }
     #hitmarker.head::before, #hitmarker.head::after { background: #ff3b3b; }
-    #topbar { position: absolute; top: 10px; left: 50%; transform: translateX(-50%); display: flex; gap: 8px; align-items: center;
-      background: rgba(0,0,0,.55); padding: 6px 14px; border-radius: 10px; font-weight: 700; }
-    #topbar .mode { color: #ffcf3b; }
-    #topbar .red { color: #ff5a4f; } #topbar .blue { color: #4f9bff; }
+    #topbar { position: absolute; top: 10px; left: 50%; transform: translateX(-50%); display: flex; gap: 10px; align-items: center;
+      background: rgba(10,8,25,.7); padding: 7px 16px; border-radius: 999px; font-weight: 800; white-space: nowrap; }
+    #topbar .mode { color: #ffe600; }
+    #topbar .red { color: #ff5a4f; } #topbar .blue { color: #4f9bff; } #topbar .green { color: #9dff4a; }
     #feed { position: absolute; top: 10px; right: 10px; font-size: 13px; text-align: right; }
-    #feed div { background: rgba(0,0,0,.55); padding: 4px 9px; border-radius: 6px; margin-bottom: 4px; }
+    #feed div { background: rgba(10,8,25,.65); padding: 4px 10px; border-radius: 8px; margin-bottom: 4px; }
     #feed .w { color: #aaa; margin: 0 6px; }
     #bottomleft { position: absolute; left: 16px; bottom: 16px; }
-    #hpbar { width: 240px; height: 22px; background: rgba(0,0,0,.6); border-radius: 6px; overflow: hidden; position: relative; }
-    #hpfill { height: 100%; background: #3ccf5a; width: 100%; transition: width .15s; }
-    #hptext { position: absolute; inset: 0; display: flex; align-items: center; padding-left: 8px; font-weight: 800; font-size: 13px; }
+    #hpbar { width: 260px; height: 24px; background: rgba(0,0,0,.6); border-radius: 8px; overflow: hidden; position: relative; }
+    #hpfill { height: 100%; background: linear-gradient(90deg, #3ddc84, #9dff4a); width: 100%; transition: width .15s; }
+    #hptext { position: absolute; inset: 0; display: flex; align-items: center; padding-left: 9px; font-weight: 800; font-size: 13px; text-shadow: 0 1px 2px #000; }
     #bottomright { position: absolute; right: 16px; bottom: 16px; text-align: right; }
-    #ammo { font-size: 36px; font-weight: 900; text-shadow: 0 2px 4px #000; }
-    #ammo small { font-size: 18px; color: #aaa; }
+    #ammo { font-size: 38px; font-weight: 900; text-shadow: 0 2px 4px #000; }
+    #ammo small { font-size: 18px; color: #ccc; }
     #wname { font-size: 14px; color: #ddd; text-shadow: 0 1px 2px #000; }
-    #reloading { color: #ffcf3b; font-weight: 700; font-size: 14px; }
+    #reloading { color: #ffe600; font-weight: 800; font-size: 14px; }
     #weapons { display: flex; gap: 6px; justify-content: flex-end; margin-top: 6px; }
-    #weapons div { background: rgba(0,0,0,.5); padding: 3px 8px; border-radius: 5px; font-size: 12px; color: #999; }
-    #weapons div.on { background: rgba(255,59,59,.85); color: #fff; }
-    #ggbar { font-size: 14px; color: #ffcf3b; font-weight: 700; text-shadow: 0 1px 2px #000; }
+    #weapons div { background: rgba(0,0,0,.5); padding: 3px 8px; border-radius: 6px; font-size: 12px; color: #aaa; }
+    #weapons div.on { background: linear-gradient(90deg, #ff2bd6, #ff6b00); color: #fff; }
+    #ability { font-size: 14px; font-weight: 800; text-shadow: 0 1px 2px #000; margin-bottom: 4px; }
+    #ggbar { font-size: 14px; color: #ffe600; font-weight: 800; text-shadow: 0 1px 2px #000; }
     #vignette { position: absolute; inset: 0; box-shadow: inset 0 0 160px rgba(255,0,0,.85); opacity: 0; transition: opacity .3s; }
     #scope { position: absolute; inset: 0; background: radial-gradient(circle at center, transparent 0, transparent 34vh, #000 34.2vh); }
     #scope::before { content: ''; position: absolute; left: 0; right: 0; top: 50%; height: 1px; background: #000; }
     #scope::after { content: ''; position: absolute; top: 0; bottom: 0; left: 50%; width: 1px; background: #000; }
-    #center { position: absolute; left: 50%; top: 38%; transform: translate(-50%, -50%); text-align: center; text-shadow: 0 2px 6px #000; }
-    #center h2 { margin: 0; font-size: 40px; }
-    #center p { margin: 6px 0 0; font-size: 18px; color: #ddd; }
-    #scoreboard { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); background: rgba(10,12,16,.9);
-      border-radius: 12px; padding: 16px 20px; min-width: min(560px, 94vw); }
+    #center { position: absolute; left: 50%; top: 36%; transform: translate(-50%, -50%); text-align: center; text-shadow: 0 2px 8px #000; width: 90vw; }
+    #center h2 { margin: 0; font-size: 42px; font-weight: 900; }
+    #center p { margin: 6px 0 0; font-size: 18px; color: #eee; }
+    #scoreboard { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); background: rgba(10,8,25,.9);
+      border-radius: 16px; padding: 16px 20px; min-width: min(620px, 94vw); max-height: 80vh; overflow: auto; }
     #scoreboard table { width: 100%; border-collapse: collapse; font-size: 14px; }
-    #scoreboard th { text-align: left; color: #8a93a3; font-weight: 600; padding: 4px 8px; }
-    #scoreboard td { padding: 5px 8px; border-top: 1px solid #22262e; }
-    #scoreboard tr.me td { background: rgba(255,255,255,.07); font-weight: 700; }
-    #scoreboard h3 { margin: 0 0 8px; }
+    #scoreboard th { text-align: left; color: #aaa; font-weight: 700; padding: 4px 8px; }
+    #scoreboard td { padding: 5px 8px; border-top: 1px solid rgba(255,255,255,.08); }
+    #scoreboard tr.me td { background: rgba(255,230,0,.12); font-weight: 800; }
+    #scoreboard h3 { margin: 0 0 8px; color: #ffe600; }
   </style>
   <script src="shared.js"></script>
   <script type="importmap">
-    { "imports": { "three": "/vendor/three.module.js" } }
+    { "imports": { "three": "/vendor/three.module.js", "three/addons/": "/vendor/addons/" } }
   </script>
 </head>
 <body>
   <div id="menu">
-    <div class="panel">
-      <h1>G<span>-</span>NS</h1>
-      <div class="sub">3D online shooter · bots fill the game to 20 players</div>
-      <div class="modeinfo" id="modeinfo">Connecting…</div>
-      <input id="name" maxlength="16" placeholder="Your nickname" autocomplete="off">
-      <div class="label">Pick your class</div>
-      <div id="classes"></div>
-      <button id="play">PLAY</button>
-      <button id="rename" class="secondary hidden">Change name</button>
-      <div id="msg"></div>
-      <div class="controls">
-        <kbd>W A S D</kbd><span>Move</span>
-        <kbd>Mouse</kbd><span>Look / aim</span>
-        <kbd>Left click</kbd><span>Shoot</span>
-        <kbd>Right click</kbd><span>Aim down sights / scope</span>
-        <kbd>Shift</kbd><span>Sprint</span>
-        <kbd>Space</kbd><span>Jump</span>
-        <kbd>C</kbd><span>Crouch (while sprinting = slide)</span>
-        <kbd>R</kbd><span>Reload</span>
-        <kbd>1 / 2</kbd><span>Switch weapon</span>
-        <kbd>Q</kbd><span>Summon undead (Undead Summoner)</span>
-        <kbd>Tab</kbd><span>Scoreboard</span>
-        <kbd>Esc</kbd><span>Menu / change name</span>
+    <header>
+      <div>
+        <div class="logo">G-NS</div>
+        <div class="tag" id="status">Connecting…</div>
       </div>
-    </div>
+      <nav id="tabs">
+        <button data-tab="play" class="on">🎮 Play</button>
+        <button data-tab="sets">🔫 Gun Sets</button>
+        <button data-tab="settings">⚙️ Settings</button>
+        <button data-tab="music">🎵 Music</button>
+      </nav>
+    </header>
+    <main>
+      <!-- PLAY -->
+      <section class="tab" id="tab-play">
+        <div class="card">
+          <div class="row">
+            <div class="grow">
+              <div class="label" style="margin-top:0">Nickname</div>
+              <input class="txt" id="name" maxlength="16" placeholder="Your nickname" autocomplete="off">
+            </div>
+            <div class="grow">
+              <div class="label" style="margin-top:0">Gun set</div>
+              <div class="setrow on" id="equipped" style="margin:0"></div>
+            </div>
+          </div>
+          <div class="row" style="margin-top:14px">
+            <button class="big" id="play">PLAY ▶</button>
+            <button class="btn blue hidden" id="rename">Change name</button>
+            <button class="btn red hidden" id="leave">Leave match</button>
+          </div>
+          <div id="msg"></div>
+        </div>
+        <div class="card"><h3>Game mode</h3><div class="grid modes" id="modes"></div></div>
+        <div class="card"><h3>Map</h3><div class="grid maps" id="maps"></div></div>
+        <div class="card"><h3>Controls</h3>
+          <div class="controls">
+            <kbd>W A S D</kbd><span>Move</span>
+            <kbd>Mouse</kbd><span>Look / aim · Left click shoot · Right click aim / scope</span>
+            <kbd>Shift</kbd><span>Sprint</span>
+            <kbd>Space</kbd><span>Jump</span>
+            <kbd>C</kbd><span>Crouch (while sprinting = slide)</span>
+            <kbd>R</kbd><span>Reload</span>
+            <kbd>1 / 2</kbd><span>Switch weapon (or mouse wheel)</span>
+            <kbd>Q</kbd><span>Special (Medkit, Dash or Summon Undead)</span>
+            <kbd>Tab</kbd><span>Scoreboard</span>
+            <kbd>Esc</kbd><span>This menu</span>
+          </div>
+        </div>
+      </section>
+
+      <!-- GUN SETS -->
+      <section class="tab hidden" id="tab-sets">
+        <div class="two">
+          <div class="card">
+            <h3>Build a gun set</h3>
+            <input class="txt" id="setName" maxlength="24" placeholder="Name your set (like 'Sniper King')">
+            <div class="label">Main gun</div><div class="chips" id="pPrimary"></div>
+            <div class="label">Second weapon</div><div class="chips" id="pSecondary"></div>
+            <div class="label">Special (press Q)</div><div class="chips" id="pSpecial"></div>
+            <div class="label">Color</div><div class="chips" id="pColor"></div>
+            <div class="row" style="margin-top:14px">
+              <label class="row" style="gap:6px;font-size:14px"><input type="checkbox" id="share" checked> Share so others can find it</label>
+            </div>
+            <div class="row" style="margin-top:10px">
+              <button class="btn go" id="saveSet">💾 Save set</button>
+              <button class="btn" id="newSet">Clear</button>
+            </div>
+            <div id="setMsg" style="margin-top:8px;color:#ffe600;font-weight:700;min-height:18px"></div>
+          </div>
+          <div class="card">
+            <h3>My gun sets</h3>
+            <div id="mySets"></div>
+          </div>
+        </div>
+        <div class="card">
+          <h3>🔍 Search gun sets</h3>
+          <div class="row">
+            <input class="txt grow" id="searchBox" placeholder="Search by set name, player or gun (like 'sniper')">
+            <button class="btn blue" id="searchBtn">Search</button>
+          </div>
+          <div id="results" style="margin-top:10px"></div>
+        </div>
+      </section>
+
+      <!-- SETTINGS -->
+      <section class="tab hidden" id="tab-settings">
+        <div class="card">
+          <h3>Settings</h3>
+          <div class="label">Mouse sensitivity: <span id="sensV"></span></div>
+          <input type="range" id="sens" min="0.2" max="3" step="0.05">
+          <div class="label">Field of view: <span id="fovV"></span></div>
+          <input type="range" id="fovS" min="60" max="100" step="1">
+          <div class="label">Game sound volume: <span id="volV"></span></div>
+          <input type="range" id="vol" min="0" max="1" step="0.05">
+          <div class="label">3D gun models loaded</div>
+          <div id="modelsInfo" style="font-size:14px;opacity:.85"></div>
+        </div>
+      </section>
+
+      <!-- MUSIC -->
+      <section class="tab hidden" id="tab-music">
+        <div class="card">
+          <h3>🎵 Music</h3>
+          <p style="margin-top:0;opacity:.9">Paste a YouTube link to any song (for example a <b>Radio Tapok</b> song) and press Play. It plays from YouTube while you're in the menu and in the game.</p>
+          <div class="row">
+            <input class="txt grow" id="ytLink" placeholder="https://www.youtube.com/watch?v=...">
+            <button class="btn go" id="ytPlay">▶ Play</button>
+            <button class="btn red" id="ytStop">■ Stop</button>
+          </div>
+          <div class="row" style="margin-top:10px">
+            <label class="row" style="gap:6px;font-size:14px"><input type="checkbox" id="ytShow"> Show the video player</label>
+          </div>
+          <div id="ytMsg" style="margin-top:8px;color:#ffe600;font-weight:700;min-height:18px"></div>
+        </div>
+      </section>
+    </main>
   </div>
+
+  <div id="ytbox" class="hidden mini"></div>
 
   <div id="hud" class="hidden">
     <div id="scope" class="hidden"></div>
@@ -125,9 +259,7 @@
     <div id="topbar"></div>
     <div id="feed"></div>
     <div id="center"></div>
-    <div id="bottomleft">
-      <div id="hpbar"><div id="hpfill"></div><div id="hptext">100</div></div>
-    </div>
+    <div id="bottomleft"><div id="hpbar"><div id="hpfill"></div><div id="hptext">500</div></div></div>
     <div id="bottomright">
       <div id="ability"></div>
       <div id="ggbar"></div>
