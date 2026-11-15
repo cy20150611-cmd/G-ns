@@ -2,6 +2,12 @@
 
 GUN GAME — an online top-down multiplayer shooter that runs in the browser.
 
+## Put it online
+
+[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/cy20150611-cmd/G-ns)
+
+Click the button, sign in to Render with GitHub, and click **Deploy**. Render gives you a link to share with friends.
+
 ## Play locally
 
 ```bash
