@@ -54,7 +54,7 @@
     tdm:       { name: 'Team Deathmatch', short: 'TDM',        teams: true,  limit: 40, desc: 'Red vs Blue. First team to 40 kills.' },
     koth:      { name: 'King of the Hill', short: 'KOTH',      teams: true,  limit: 100, desc: 'Stand in the glowing zone to score. First team to 100.' },
     gungame:   { name: 'Gun Game',        short: 'GUN GAME',   teams: false, desc: 'Every kill gives you the next gun. Win with the knife!' },
-    infection: { name: 'Infection',       short: 'INFECTION',  teams: true,  time: 180, desc: 'One player starts infected. Get killed and you join them. Survive 3 minutes!' },
+    infection: { name: 'Infection',       short: 'INFECTION',  teams: true,  time: 450, desc: 'The first infected has 2000 HP, the rest 700. Get killed and you join them. Survive 7:30!' },
     horde:     { name: 'Undead Horde',    short: 'HORDE',      teams: false, coop: true, time: 600, desc: 'Team up against waves of undead. Survive 10 waves!' },
     oneshot:   { name: 'One Shot',        short: 'ONE SHOT',   teams: false, limit: 15, desc: 'Revolver with 1 bullet. Every hit kills. Kills give you a bullet.' },
     snipers:   { name: 'Snipers Only',    short: 'SNIPERS',    teams: false, limit: 20, desc: 'Everyone gets a sniper and a knife.' },

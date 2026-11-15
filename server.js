@@ -190,7 +190,7 @@ class Room {
     return e.set.special;
   }
   currentWeapon(e) { const lo = this.loadout(e); return lo.includes(e.weapon) ? e.weapon : lo[0]; }
-  maxHp(e) { return this.infected(e) ? 350 : MAX_HP; }
+  maxHp(e) { return this.infected(e) ? (e.alpha ? 2000 : 700) : MAX_HP; }
   startAmmo(w) { return this.mode === 'oneshot' && w === 'revolver' ? 1 : WEAPONS[w].mag; }
 
   // ----- spawning -----
@@ -549,7 +549,7 @@ class Room {
     const list = this.fighters().sort(() => Math.random() - 0.5).sort((a, b) => a.bot - b.bot);
     list.forEach((e, i) => { e.team = this.mode === 'infection' || this.mode === 'horde' ? 0 : i % 2; });
     for (const e of list) {
-      Object.assign(e, { kills: 0, deaths: 0, gunLevel: 0, levelKills: 0, abilityReady: 0 });
+      Object.assign(e, { kills: 0, deaths: 0, gunLevel: 0, levelKills: 0, abilityReady: 0, alpha: false });
       this.spawn(e);
     }
     this.broadcast({ t: 'match', mode: this.mode });
@@ -611,8 +611,9 @@ class Room {
       if (list.length) {
         const first = pick(list);
         first.team = 1;
+        first.alpha = true;
         this.removeUndeadOf(first.id);
-        this.broadcast({ t: 'info', text: `☣ ${first.name} is the first infected! RUN!` });
+        this.broadcast({ t: 'info', text: `☣ ${first.name} is the first infected with 2000 HP! RUN!` });
         this.spawn(first);
       }
     }
