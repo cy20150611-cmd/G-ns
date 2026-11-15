@@ -67,6 +67,24 @@
     .setrow .info b { display: block; }
     .setrow .info span { font-size: 12px; opacity: .75; }
     .setrow.on { outline: 2px solid #ffe600; }
+    .builder { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-top: 10px; }
+    @media (max-width: 800px) { .builder { grid-template-columns: 1fr; } }
+    .itemlist { margin-top: 8px; max-height: 330px; overflow-y: auto; display: grid; grid-template-columns: 1fr 1fr; gap: 6px; padding-right: 4px; }
+    .item { text-align: left; border: 2px solid rgba(255,255,255,.12); background: rgba(0,0,0,.35); color: #fff; border-radius: 10px; padding: 7px 9px; }
+    .item b { display: block; font-size: 13px; } .item span { font-size: 11px; opacity: .7; }
+    .item.on { border-color: #00f0ff; background: rgba(0,240,255,.15); }
+    #preview { width: 100%; height: 210px; display: block; border-radius: 12px; background: radial-gradient(circle at 50% 40%, rgba(255,255,255,.12), rgba(0,0,0,.35)); }
+    .iteminfo h4 { margin: 10px 0 2px; font-size: 18px; } .iteminfo .sub { font-size: 12px; opacity: .75; margin-bottom: 6px; } .iteminfo p { margin: 6px 0; font-size: 14px; }
+    .stat { display: grid; grid-template-columns: 78px 1fr 64px; gap: 8px; align-items: center; font-size: 12px; margin: 4px 0; }
+    .stat i { height: 8px; background: rgba(255,255,255,.12); border-radius: 99px; overflow: hidden; }
+    .stat i b { display: block; height: 100%; background: linear-gradient(90deg, #00f0ff, #ff2bd6); }
+    .stat em { font-style: normal; text-align: right; opacity: .85; }
+    .picked { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 10px; }
+    .picked span { background: rgba(0,0,0,.35); border: 2px solid rgba(255,255,255,.12); border-radius: 10px; padding: 5px 9px; font-size: 13px; font-weight: 700; cursor: pointer; }
+    .picked span small { display: block; font-size: 10px; opacity: .65; font-weight: 600; text-transform: uppercase; }
+    .picked .pick-on { border-color: #ffe600; }
+    #blindfx { position: absolute; inset: 0; background: #fff; opacity: 0; }
+    #shieldfx { position: absolute; inset: 0; box-shadow: inset 0 0 120px rgba(0,194,255,.6); opacity: 0; transition: opacity .3s; }
     .label { font-size: 12px; text-transform: uppercase; letter-spacing: .8px; opacity: .7; margin: 12px 0 6px; font-weight: 700; }
     #msg { min-height: 20px; color: #ffe600; font-weight: 700; margin-top: 8px; }
     .two { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
@@ -173,8 +191,8 @@
             <kbd>Space</kbd><span>Jump</span>
             <kbd>C</kbd><span>Crouch (while sprinting = slide)</span>
             <kbd>R</kbd><span>Reload</span>
-            <kbd>1 / 2</kbd><span>Switch weapon (or mouse wheel)</span>
-            <kbd>Q</kbd><span>Special (Medkit, Dash or Summon Undead)</span>
+            <kbd>1 / 2 / 3</kbd><span>Primary / secondary / blade (or mouse wheel)</span>
+            <kbd>Q</kbd><span>Equipment (grenade, drone, Field Radio backup, medkit…)</span>
             <kbd>Tab</kbd><span>Scoreboard</span>
             <kbd>Esc</kbd><span>This menu</span>
           </div>
@@ -184,17 +202,18 @@
       <!-- GUN SETS -->
       <section class="tab hidden" id="tab-sets">
         <div class="two">
-          <div class="card">
+          <div class="card" style="grid-column: 1 / -1">
             <h3>Build a gun set</h3>
-            <input class="txt" id="setName" maxlength="24" placeholder="Name your set (like 'Sniper King')">
-            <div class="label">Main gun</div><div class="chips" id="pPrimary"></div>
-            <div class="label">Second weapon</div><div class="chips" id="pSecondary"></div>
-            <div class="label">Special (press Q)</div><div class="chips" id="pSpecial"></div>
-            <div class="label">Color</div><div class="chips" id="pColor"></div>
+            <div class="row"><input class="txt grow" id="setName" maxlength="24" placeholder="Name your set (like 'Scout Squad')"></div>
+            <div id="picked" class="picked"></div>
+            <div class="chips" id="secTabs" style="margin-top:10px"></div>
+            <div class="builder">
+              <div><input class="txt" id="itemSearch" placeholder="Search this section… (like 'glock' or 'sniper')" style="padding:9px 12px;font-size:14px"><div id="itemList" class="itemlist"></div></div>
+              <div><canvas id="preview"></canvas><div id="itemInfo" class="iteminfo"></div></div>
+            </div>
+            <div class="label">Armband color</div><div class="chips" id="pColor"></div>
             <div class="row" style="margin-top:14px">
               <label class="row" style="gap:6px;font-size:14px"><input type="checkbox" id="share" checked> Share so others can find it</label>
-            </div>
-            <div class="row" style="margin-top:10px">
               <button class="btn go" id="saveSet">💾 Save set</button>
               <button class="btn" id="newSet">Clear</button>
             </div>
@@ -254,6 +273,8 @@
   <div id="hud" class="hidden">
     <div id="scope" class="hidden"></div>
     <div id="vignette"></div>
+    <div id="shieldfx"></div>
+    <div id="blindfx"></div>
     <div id="crosshair"><i></i><i></i><i></i><i></i></div>
     <div id="hitmarker"></div>
     <div id="topbar"></div>

@@ -15,19 +15,29 @@ export function initAudio() {
 }
 
 const PROFILES = {
-  rifle:   { freq: 1400, dur: 0.12, vol: 0.5, boom: 90 },
-  lmg:     { freq: 1200, dur: 0.14, vol: 0.55, boom: 80 },
-  dmr:     { freq: 1000, dur: 0.25, vol: 0.7, boom: 70 },
-  revolver:{ freq: 900,  dur: 0.3,  vol: 0.75, boom: 75 },
-  smg:     { freq: 1900, dur: 0.08, vol: 0.4, boom: 120 },
-  shotgun: { freq: 800,  dur: 0.3,  vol: 0.8, boom: 60 },
-  pistol:  { freq: 2200, dur: 0.1,  vol: 0.45, boom: 140 },
-  sniper:  { freq: 700,  dur: 0.5,  vol: 0.9, boom: 50 },
+  ar:       { freq: 1400, dur: 0.12, vol: 0.5,  boom: 90 },
+  ak:       { freq: 1150, dur: 0.14, vol: 0.55, boom: 80 },
+  battle:   { freq: 1000, dur: 0.17, vol: 0.6,  boom: 70 },
+  sil:      { freq: 2600, dur: 0.06, vol: 0.18, boom: 200 },
+  lmg:      { freq: 1200, dur: 0.14, vol: 0.55, boom: 80 },
+  dmr:      { freq: 1000, dur: 0.25, vol: 0.7,  boom: 70 },
+  smg:      { freq: 1900, dur: 0.08, vol: 0.4,  boom: 120 },
+  shotgun:  { freq: 800,  dur: 0.3,  vol: 0.8,  boom: 60 },
+  autoshot: { freq: 850,  dur: 0.26, vol: 0.75, boom: 62 },
+  sniper:   { freq: 700,  dur: 0.5,  vol: 0.9,  boom: 50 },
+  pistol:   { freq: 2200, dur: 0.1,  vol: 0.45, boom: 140 },
+  compact:  { freq: 2400, dur: 0.09, vol: 0.4,  boom: 150 },
+  heavy:    { freq: 1800, dur: 0.13, vol: 0.55, boom: 110 },
+  machpist: { freq: 2300, dur: 0.07, vol: 0.4,  boom: 140 },
+  deagle:   { freq: 950,  dur: 0.3,  vol: 0.8,  boom: 70 },
+  revolver: { freq: 900,  dur: 0.3,  vol: 0.75, boom: 75 },
+  magnum:   { freq: 800,  dur: 0.36, vol: 0.85, boom: 65 },
+  boom:     { freq: 500,  dur: 0.9,  vol: 1.0,  boom: 40 },
 };
 
 export function playShot(weapon, volume = 1) {
   if (!ctx || volume <= 0.01) return;
-  const p = PROFILES[weapon] || PROFILES.rifle;
+  const p = PROFILES[weapon] || PROFILES.ar;
   const t = ctx.currentTime;
   const out = ctx.createGain();
   out.gain.value = p.vol * volume * 0.6 * master;
@@ -94,3 +104,5 @@ export function playStep(volume = 1) {
 export const playDash = () => { beep(300, 0.12, 0.12, 'sawtooth'); setTimeout(() => beep(600, 0.1, 0.08, 'sawtooth'), 40); };
 export const playHeal = () => { beep(600, 0.1, 0.1, 'sine'); setTimeout(() => beep(900, 0.15, 0.1, 'sine'), 90); };
 export const playWave = () => { beep(220, 0.3, 0.15, 'sawtooth'); setTimeout(() => beep(165, 0.5, 0.15, 'sawtooth'), 250); };
+export const playBoom = (volume = 1) => playShot('boom', volume);
+export const playClick = () => beep(1200, 0.03, 0.06);

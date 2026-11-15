@@ -1,11 +1,13 @@
 // G-ns 3D client: menu, gun sets, maps, first-person controls, shooting, HUD and networking.
 import * as THREE from 'three';
 import { texture, skyTexture } from './textures.js';
-import { ViewModel, Avatar, SIGHT_HEIGHT, loadGunModels, loadedModels } from './models.js';
+import { ViewModel, Avatar, loadGunModels, loadedModels, grenadeModel, buildGun } from './models.js';
+import { buildModel } from './armory.js';
+import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import * as SFX from './audio.js';
 
 const G = window.GNS;
-const { MAX_HP, WEAPONS, PRIMARIES, SECONDARIES, SPECIALS, COLORS, DEFAULT_SETS, cleanSet, MODES, MAPS, GUNGAME_ORDER, HORDE_WAVES, collides, moveBody } = G;
+const { MAX_HP, WEAPONS, PRIMARIES, SECONDARIES, BLADES, EQUIPMENT, OPERATORS, BACKUP, ONESHOT_GUN, COLORS, DEFAULT_SETS, cleanSet, MODES, MAPS, GUNGAME_ORDER, HORDE_WAVES, collides, moveBody } = G;
 const $ = id => document.getElementById(id);
 const TEAM_COLORS = ['#d63a2f', '#2e6fd8'];
 const TEAM_TAG = ['#ff7b6e', '#7fb2ff'];
@@ -60,6 +62,10 @@ const vmSun = new THREE.DirectionalLight(0xffffff, 1.6);
 vmSun.position.set(1, 2, 1);
 vmScene.add(vmSun);
 const viewModel = new ViewModel('#55606e');
+// reflections so metal guns look like metal instead of black
+const envTex = new THREE.PMREMGenerator(renderer).fromScene(new RoomEnvironment(), 0.04).texture;
+vmScene.environment = envTex;
+vmScene.environmentIntensity = 0.9;
 vmScene.add(viewModel.root);
 
 addEventListener('resize', () => {
@@ -140,7 +146,7 @@ buildMap('yard');
 
 // ---------- local player ----------
 const me = {
-  id: null, joined: false, alive: false, seq: 0, team: 0, weapons: ['rifle', 'pistol'], weapon: 'rifle', special: null,
+  id: null, joined: false, alive: false, seq: 0, team: 0, weapons: ['hk416', 'g17', 'kabar'], weapon: 'hk416', special: null,
   x: 0, y: 10, z: 30, vx: 0, vy: 0, vz: 0, r: 0.35, h: 1.8, onGround: false,
   yaw: 0, pitch: -0.3, crouch: false, slideT: 0, eyeH: 1.62, dashT: 0, dashReady: 0,
   hp: MAX_HP, mhp: MAX_HP, ammo: {}, reloadUntil: 0, lastShot: -9, diedAt: 0, killer: '', respawnIn: 3, oneshot: false,
@@ -154,6 +160,8 @@ let banner = { until: 0, title: '', text: '' };
 let room = null;    // { mode, map } we are in
 const avatars = new Map();
 const undeadAvatars = new Map();
+const backupAvatars = new Map();
+const grenadeMeshes = new Map();
 
 // ---------- gun sets (saved in this browser) ----------
 let mySets = store.get('gns-sets', null);
@@ -192,6 +200,11 @@ function onMessage(m) {
     case 'weapons': setWeapons(m.weapons); break;
     case 'ammo': me.ammo[m.w] = (me.ammo[m.w] || 0) + m.add; break;
     case 'shot': onRemoteShot(m); break;
+    case 'equip': onEquip(m.eq); break;
+    case 'blind': blindT = m.dur; blindMax = m.dur; SFX.playHurt(); break;
+    case 'flash': { const av = avatars.get(m.id); if (av) { flashLight.position.copy(av.muzzleWorld); flashLight.intensity = 20; flashUntil = nowS() + 0.15; } break; }
+    case 'boom': onBoom(m); break;
+    case 'backup': if (m.id !== me.id) addFeedText(`📻 ${m.name} called backup Lv${m.lvl}!`); else showBanner(`📻 Backup Lv${m.lvl}`, levelText(m.lvl)); break;
     case 'hit': onHit(m); break;
     case 'hurt': hurtT = 0.5; SFX.playHurt(); break;
     case 'healed': SFX.playHeal(); healT = 0.6; break;
@@ -204,9 +217,11 @@ function onMessage(m) {
     case 'wave': showBanner(`🧟 Wave ${m.wave}`, `${m.count} undead are coming!`); SFX.playWave(); break;
     case 'waveClear': showBanner(`Wave ${m.wave} cleared!`, 'Everyone is back. Get ready…'); break;
     case 'claw': { const av = undeadAvatars.get(m.id); if (av) av.attack(); break; }
-    case 'undeadDie': {
-      const av = undeadAvatars.get(m.id);
-      if (av) { puff(av.display.clone().setY(av.display.y + 1), 0x6a8a4a, 1.6); scene.remove(av.root); undeadAvatars.delete(m.id); }
+    case 'minionDie': {
+      for (const map of [undeadAvatars, backupAvatars]) {
+        const av = map.get(m.id);
+        if (av) { if (!m.gone) puff(av.display.clone().setY(av.display.y + 1), map === undeadAvatars ? 0x6a8a4a : 0x999999, 1.6); scene.remove(av.root); map.delete(m.id); }
+      }
       break;
     }
     case 'summon': {
@@ -219,7 +234,8 @@ function onMessage(m) {
 
 function onSpawn(m) {
   Object.assign(me, { x: m.x, y: m.y, z: m.z, yaw: m.yaw, pitch: 0, vx: 0, vy: 0, vz: 0, seq: m.seq, alive: true, hp: m.hp, mhp: m.mhp,
-    slideT: 0, crouch: false, h: 1.8, special: m.special, oneshot: !!m.ammo1, dashT: 0 });
+    slideT: 0, crouch: false, h: 1.8, special: m.special, oneshot: !!m.ammo1 });
+  markUntil = nvUntil = focusUntil = shieldUntil = 0; blindT = 0;
   me.ammo = {};
   for (const w of Object.keys(WEAPONS)) me.ammo[w] = WEAPONS[w].mag;
   if (me.oneshot) me.ammo.revolver = 1;
@@ -256,7 +272,7 @@ function onState(m) {
     if (mine.dead && me.alive) me.alive = false;
     if (m.mode === 'gungame' && mine.w !== me.weapon && me.alive) setWeapons([mine.w], true);
   }
-  viewModel.setSleeve(me.inf ? '#3a3530' : teamMode && m.mode !== 'infection' ? TEAM_COLORS[me.team] : currentSet().color);
+  viewModel.setSleeve(me.inf ? '#3a3530' : (OPERATORS[currentSet().operator] || OPERATORS.man).color);
   hillMesh.visible = m.mode === 'koth';
   if (hillMesh.visible) hillMesh.material.color.set(m.hillTeam === 0 ? TEAM_COLORS[0] : m.hillTeam === 1 ? TEAM_COLORS[1] : m.hillTeam === 2 ? '#ffffff' : '#ffe600');
 
@@ -269,6 +285,7 @@ function onState(m) {
     if (av && av.kind !== kind) { scene.remove(av.root); av = null; }
     if (!av) { av = new Avatar(p.id, kind); scene.add(av.root); avatars.set(p.id, av); }
     av.state = p;
+    if (!p.inf) av.setOutfit(p.op);
     const shirt = p.inf ? '#3a3530' : teamMode && m.mode !== 'infection' ? TEAM_COLORS[p.team] : p.col;
     const tag = p.inf ? '#9dff4a' : teamMode && m.mode !== 'infection' ? TEAM_TAG[p.team] : '#ffffff';
     av.setLook(p.name, shirt, tag);
@@ -285,6 +302,29 @@ function onState(m) {
     av.setLook(friendly ? 'Your undead' : 'Undead', '#3a3530', friendly ? '#9dff4a' : '#ff6b5a');
   }
   for (const [id, av] of undeadAvatars) if (!useen.has(id)) { scene.remove(av.root); undeadAvatars.delete(id); }
+
+  // backup soldiers (Field Radio)
+  const bseen = new Set();
+  for (const b of m.backup || []) {
+    bseen.add(b.id);
+    let av = backupAvatars.get(b.id);
+    if (!av) { av = new Avatar(b.id, 'soldier'); scene.add(av.root); backupAvatars.set(b.id, av); }
+    const mineB = b.o === me.id, friendly = mineB || ((teamMode || m.mode === 'horde') && b.team === me.team);
+    av.state = { x: b.x, y: b.y, z: b.z, yaw: b.yaw, pitch: b.pitch, c: 0, s: 0, j: b.j, dead: false, hp: b.hp, w: b.w, o: b.o, team: b.team };
+    av.setOutfit(b.op);
+    av.setLook((mineB ? '★ ' : '') + b.name, friendly ? '#3ddc84' : '#ff4d4d', friendly ? '#9dff4a' : '#ff6b5a');
+  }
+  for (const [id, av] of backupAvatars) if (!bseen.has(id)) { scene.remove(av.root); backupAvatars.delete(id); }
+
+  // grenades in the air
+  const gseen = new Set();
+  for (const [id, x, y, z] of m.nades || []) {
+    gseen.add(id);
+    let g = grenadeMeshes.get(id);
+    if (!g) { g = grenadeModel(); scene.add(g); grenadeMeshes.set(id, g); g.position.set(x, y, z); }
+    g.userData.target = new THREE.Vector3(x, y, z);
+  }
+  for (const [id, g] of grenadeMeshes) if (!gseen.has(id)) { scene.remove(g); grenadeMeshes.delete(id); }
 }
 
 // ---------- input ----------
@@ -297,6 +337,7 @@ addEventListener('keydown', e => {
   if (e.code === 'Space' || e.code.startsWith('Arrow')) e.preventDefault();
   if (e.code === 'Digit1' && me.weapons[0]) switchWeapon(me.weapons[0]);
   if (e.code === 'Digit2' && me.weapons[1]) switchWeapon(me.weapons[1]);
+  if (e.code === 'Digit3' && me.weapons[2]) switchWeapon(me.weapons[2]);
   if (e.code === 'KeyR') startReload();
   if (e.code === 'KeyQ') useSpecial();
   if (e.code === 'KeyC') trySlide();
@@ -343,20 +384,47 @@ function trySlide() {
 }
 function useSpecial() {
   if (!me.alive || !me.special) return;
-  if (me.special === 'dash') {
-    if (nowS() < me.dashReady) return;
-    me.dashReady = nowS() + SPECIALS.dash.cooldown;
-    const k = c => keys.has(c);
-    const fx = (k('KeyW') ? 1 : 0) - (k('KeyS') ? 1 : 0), sx = (k('KeyD') ? 1 : 0) - (k('KeyA') ? 1 : 0);
-    let dx = -Math.sin(me.yaw) * (fx || (sx ? 0 : 1)) + Math.cos(me.yaw) * sx;
-    let dz = -Math.cos(me.yaw) * (fx || (sx ? 0 : 1)) - Math.sin(me.yaw) * sx;
-    const l = Math.hypot(dx, dz) || 1;
-    me.vx = dx / l * 22; me.vz = dz / l * 22;
-    me.dashT = 0.22;
-    SFX.playDash();
-  }
-  send({ t: 'ability' });
+  const mine = snap && snap.players.find(p => p.id === me.id);
+  if (mine && mine.cd > 0) { SFX.playEmpty(); return; }
+  const f = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
+  send({ t: 'ability', dir: [+f.x.toFixed(3), +f.y.toFixed(3), +f.z.toFixed(3)] });
 }
+let markUntil = 0, nvUntil = 0, focusUntil = 0, shieldUntil = 0, sensor = null, blindT = 0, blindMax = 1;
+const levelText = l => `Leader: ${WEAPONS[BACKUP.leader[l - 1]].name} · Gunner: ${WEAPONS[BACKUP.gunner[l - 1]].name} · Grenadier: grenades every ${BACKUP.grenadeEvery[l - 1]}s`;
+function onEquip(eq) {
+  const t = nowS();
+  switch (eq) {
+    case 'drone': markUntil = t + 8; showBanner('🛸 Drone up', 'All enemies are marked for 8 seconds'); break;
+    case 'm67': SFX.playClick(); break;
+    case 'equipment3': nvUntil = t + 15; break;
+    case 'equipment4': SFX.playHeal(); healT = 0.6; break;
+    case 'equipment5': focusUntil = t + 8; SFX.playClick(); break;
+    case 'equipment6': flashLight.position.copy(camera.position); flashLight.intensity = 25; flashUntil = t + 0.15; break;
+    case 'equipment7': shieldUntil = t + 6; SFX.playClick(); break;
+    case 'equipment8':
+      for (const w of me.weapons) me.ammo[w] = WEAPONS[w].mag;
+      me.reloadUntil = 0; SFX.playHeal(); healT = 0.6; break;
+    case 'equipment9': sensor = { x: me.x, y: me.y, z: me.z, until: t + 40 }; placeSensor(); SFX.playClick(); break;
+  }
+}
+const sensorMesh = (() => {
+  const g = buildModel('equipment9');
+  const b = new THREE.Box3().setFromObject(g), sz = b.getSize(new THREE.Vector3());
+  g.scale.setScalar(0.35 / Math.max(sz.x, sz.y, sz.z, 0.01));
+  const wrap = new THREE.Group(); wrap.add(g); wrap.visible = false; scene.add(wrap);
+  return wrap;
+})();
+function placeSensor() { sensorMesh.position.set(sensor.x, sensor.y + 0.15, sensor.z); sensorMesh.visible = true; }
+function onBoom(m) {
+  const p = new THREE.Vector3(m.x, m.y + 0.3, m.z);
+  puff(p, 0xff8a1a, 7); puff(p, 0x444444, 9);
+  flashLight.position.copy(p); flashLight.intensity = 40; flashUntil = nowS() + 0.12;
+  const d = Math.hypot(m.x - me.x, m.y - me.y, m.z - me.z);
+  SFX.playBoom(1 / (1 + d / 12));
+  shake = Math.max(shake, Math.max(0, 0.4 - d * 0.03));
+}
+let shake = 0;
+
 function updateMovement(dt) {
   const k = c => keys.has(c);
   const w = WEAPONS[me.weapon];
@@ -372,9 +440,7 @@ function updateMovement(dt) {
   const wl = Math.hypot(wx, wz);
   if (wl > 0) { wx /= wl; wz /= wl; }
 
-  if (me.dashT > 0) {
-    me.dashT -= dt;
-  } else if (me.slideT > 0) {
+  if (me.slideT > 0) {
     me.slideT -= dt;
     const f = Math.exp(-dt * 1.5);
     me.vx *= f; me.vz *= f;
@@ -437,6 +503,11 @@ function targets() {
     if (!s || s.o === me.id || !isEnemyTeam(s.team) || s.rise < 1) continue;
     list.push({ id, pos: av.display, crouch: false });
   }
+  for (const [id, av] of backupAvatars) {
+    const s = av.state;
+    if (!s || s.o === me.id || !isEnemyTeam(s.team) || snap.mode === 'horde') continue;
+    list.push({ id, pos: av.display, crouch: false });
+  }
   return list;
 }
 function castRay(o, d, range, inflate) {
@@ -457,7 +528,7 @@ function castRay(o, d, range, inflate) {
 function startReload() {
   const w = WEAPONS[me.weapon];
   if (w.melee || me.reloadUntil > 0 || me.ammo[me.weapon] >= w.mag || !me.alive) return;
-  if (me.oneshot && me.weapon === 'revolver') return;
+  if (me.oneshot && me.weapon === ONESHOT_GUN) return;
   me.reloadUntil = nowS() + w.reload;
   SFX.playReload();
 }
@@ -484,11 +555,11 @@ function tryFire() {
   const speed = Math.hypot(me.vx, me.vz);
   let spread = w.spread;
   if (!w.melee) {
-    if (adsT < 0.5) spread += me.weapon === 'sniper' ? 0.06 : me.weapon === 'dmr' ? 0.02 : 0.01;
+    if (adsT < 0.5) spread += w.type === 'sniper' ? 0.06 : w.type === 'dmr' ? 0.02 : 0.01;
     spread += Math.min(1, speed / 8.6) * 0.025;
     if (!me.onGround) spread += 0.04;
     if (me.crouch && me.slideT <= 0) spread *= 0.7;
-    if (adsT > 0.5) spread *= me.weapon === 'shotgun' ? 0.85 : 0.45;
+    if (adsT > 0.5) spread *= w.pellets > 1 ? 0.85 : 0.45;
   }
   const hits = [], ends = [];
   const muzzle = camera.position.clone().addScaledVector(right, 0.18).addScaledVector(up, -0.12).addScaledVector(fwd, 0.6);
@@ -504,13 +575,13 @@ function tryFire() {
   send({ t: 'shoot', weapon: me.weapon, hits, ends });
   if (w.melee) { stabT = 0.25; SFX.playEmpty(); }
   else {
-    SFX.playShot(me.weapon, 1);
+    SFX.playShot(w.type, 1);
     viewModel.flash.visible = true;
     viewModel.flash.rotation.z = Math.random() * Math.PI;
     flashUntil = t + 0.05;
     flashLight.position.copy(muzzle);
     flashLight.intensity = 6;
-    kick = Math.min(0.12, kick + (['sniper', 'shotgun', 'revolver', 'dmr'].includes(me.weapon) ? 0.09 : 0.03));
+    kick = Math.min(0.12, kick + Math.min(0.09, 0.02 + w.recoil * 1.2));
     me.pitch = Math.min(1.5, me.pitch + w.recoil * (adsT > 0.5 ? 0.6 : 1));
     me.yaw += (Math.random() - 0.5) * w.recoil * 0.5;
     if (me.ammo[me.weapon] === 0) setTimeout(startReload, 200);
@@ -558,12 +629,12 @@ function updateFx(dt) {
   }
 }
 function onRemoteShot(m) {
-  const av = avatars.get(m.id);
+  const av = avatars.get(m.id) || backupAvatars.get(m.id);
   if (!av) return;
   if (WEAPONS[m.w] && WEAPONS[m.w].melee) { av.attack(); return; }
   const from = av.muzzleWorld;
   for (const e of m.ends) tracer(from, new THREE.Vector3(e[0], e[1], e[2]));
-  SFX.playShot(m.w, 1 / (1 + Math.hypot(av.display.x - me.x, av.display.z - me.z) / 10));
+  SFX.playShot(WEAPONS[m.w] ? WEAPONS[m.w].type : 'ar', 1 / (1 + Math.hypot(av.display.x - me.x, av.display.z - me.z) / 10));
 }
 let hitTimer = 0, hurtT = 0, healT = 0;
 function onHit(m) {
@@ -574,11 +645,39 @@ function onHit(m) {
   if (m.kill) SFX.playKill(); else SFX.playHit(m.head);
 }
 
+// ---------- enemy markers (drone, camera sensor, night vision) ----------
+const markTex = (() => {
+  const c = document.createElement('canvas'); c.width = c.height = 64;
+  const g = c.getContext('2d');
+  g.fillStyle = '#ff2b2b'; g.strokeStyle = '#fff'; g.lineWidth = 5;
+  g.beginPath(); g.moveTo(32, 58); g.lineTo(8, 14); g.lineTo(56, 14); g.closePath(); g.fill(); g.stroke();
+  return new THREE.CanvasTexture(c);
+})();
+function updateMarks(t) {
+  const drone = t < markUntil, nv = t < nvUntil;
+  const check = (av, enemy) => {
+    let on = false;
+    if (enemy && av.state && !av.state.dead) {
+      const p = av.display;
+      on = drone || (sensor && Math.hypot(p.x - sensor.x, p.z - sensor.z) < 20) || (nv && Math.hypot(p.x - me.x, p.z - me.z) < 45);
+    }
+    if (on && !av.mark) {
+      av.mark = new THREE.Sprite(new THREE.SpriteMaterial({ map: markTex, depthTest: false, transparent: true }));
+      av.mark.scale.set(0.45, 0.45, 1); av.mark.position.y = 2.55; av.mark.renderOrder = 999;
+      av.root.add(av.mark);
+    }
+    if (av.mark) av.mark.visible = on;
+  };
+  for (const av of avatars.values()) check(av, av.state && isEnemyTeam(av.state.team) && snap && snap.mode !== 'horde');
+  for (const av of backupAvatars.values()) check(av, av.state && av.state.o !== me.id && isEnemyTeam(av.state.team));
+  for (const av of undeadAvatars.values()) check(av, av.state && av.state.o !== me.id && isEnemyTeam(av.state.team));
+}
+
 // ---------- HUD ----------
 function addFeed(m) {
   const teams = snap && (MODES[snap.mode].teams && snap.mode !== 'infection');
   const col = t => (teams ? TEAM_TAG[t] : '#fff');
-  const wn = m.w === 'undead' ? '☠ undead' : WEAPONS[m.w] ? WEAPONS[m.w].name : m.w;
+  const wn = m.w === 'undead' ? '☠ undead' : m.w === 'm67' ? '💣 grenade' : WEAPONS[m.w] ? WEAPONS[m.w].name : m.w;
   addFeedHtml(`<span style="color:${col(m.kt)}">${esc(m.killer)}</span><span class="w">[${wn}${m.head ? ' · headshot' : ''}]</span><span style="color:${col(m.vt)}">${esc(m.victim)}</span>`);
 }
 function addFeedText(t) { addFeedHtml(`<span style="color:#ccc">${esc(t)}</span>`); }
@@ -623,18 +722,22 @@ function updateHud(dt) {
   $('hpfill').style.background = healT > 0 ? '#9dff4a' : hpPct > 40 ? 'linear-gradient(90deg,#3ddc84,#9dff4a)' : 'linear-gradient(90deg,#ff2b2b,#ff7b00)';
   healT = Math.max(0, healT - dt);
   setHTML('hptext', `${Math.max(0, me.hp)} / ${me.mhp} HP${mine && mine.sp ? ' · 🛡 protected' : ''}`);
-  setHTML('ammo', w.melee ? '∞' : `${me.ammo[me.weapon]}<small> / ${me.oneshot && me.weapon === 'revolver' ? '∞' : w.mag}</small>`);
+  setHTML('ammo', w.melee ? '∞' : `${me.ammo[me.weapon]}<small> / ${me.oneshot && me.weapon === ONESHOT_GUN ? '∞' : w.mag}</small>`);
   setHTML('wname', w.name);
   setHTML('reloading', me.reloadUntil > 0 ? 'RELOADING…' : !w.melee && me.ammo[me.weapon] === 0 ? (me.oneshot ? 'NO BULLETS — USE THE KNIFE!' : 'PRESS R TO RELOAD') : '');
   setHTML('ggbar', mode === 'gungame' && mine ? `GUN ${mine.lvl + 1} / ${GUNGAME_ORDER.length}` : '');
   let ab = '';
   if (me.special && mine) {
-    const cd = me.special === 'dash' ? Math.max(0, Math.ceil(me.dashReady - nowS())) : mine.cd;
-    ab = cd > 0 ? `<span style="color:#aaa">[Q] ${SPECIALS[me.special].name}: ${cd}s</span>` : `<span style="color:#9dff4a">[Q] ${SPECIALS[me.special].name}: READY</span>`;
+    const cd = mine.cd, nm = EQUIPMENT[me.special].name;
+    ab = cd > 0 ? `<span style="color:#aaa">[Q] ${nm}: ${cd}s</span>` : `<span style="color:#9dff4a">[Q] ${nm}: READY</span>`;
+    if (me.special === 'equipment2') ab += `<br><span style="color:#ffe600">Next backup: Lv${Math.min(BACKUP.maxLevel, (mine.bl || 0) + 1)}</span>`;
+    const t = nowS();
+    if (t < focusUntil) ab += `<br><span style="color:#ff9f1a">🎯 +50% damage ${Math.ceil(focusUntil - t)}s</span>`;
+    if (t < shieldUntil) ab += `<br><span style="color:#00c2ff">🛡 Shield ${Math.ceil(shieldUntil - t)}s</span>`;
   }
   setHTML('ability', ab);
 
-  const scoped = me.weapon === 'sniper' && adsT > 0.85;
+  const scoped = w.type === 'sniper' && adsT > 0.85;
   $('scope').classList.toggle('hidden', !scoped);
   const ch = $('crosshair');
   ch.style.display = scoped || (adsT > 0.6 && !w.melee) ? 'none' : '';
@@ -705,7 +808,7 @@ async function refreshRooms() {
 }
 setInterval(() => { if (!playing) refreshRooms(); }, 5000);
 
-const setLine = s => `${WEAPONS[s.primary].name} + ${WEAPONS[s.secondary].name} · ${SPECIALS[s.special].name}`;
+const setLine = s => `${WEAPONS[s.primary].name} · ${WEAPONS[s.secondary].name} · ${WEAPONS[s.blade].name} · ${EQUIPMENT[s.equipment].name} · ${OPERATORS[s.operator].name}`;
 function renderEquipped() {
   const s = currentSet();
   $('equipped').innerHTML = `<span class="dot" style="background:${s.color}"></span><div class="info"><b>${esc(s.name)}</b><span>${setLine(s)}</span></div><button class="btn small" id="changeSet">Change</button>`;
@@ -756,20 +859,105 @@ function hideMenu() {
   $('msg').textContent = '';
 }
 
-// ----- gun set builder -----
-const draft = { name: '', primary: 'rifle', secondary: 'pistol', special: 'medkit', color: COLORS[4] };
-function chips(id, list, key, label) {
-  $(id).innerHTML = list.map(v => key === 'color'
-    ? `<button class="swatch ${draft.color === v ? 'on' : ''}" data-v="${v}" style="background:${v}"></button>`
-    : `<button class="chip ${draft[key] === v ? 'on' : ''}" data-v="${v}">${label(v)}</button>`).join('');
-  $(id).onclick = e => { const b = e.target.closest('[data-v]'); if (!b) return; draft[key] = b.dataset.v; renderBuilder(); };
-}
+// ----- gun set builder (same sections as the G-NS Armory) -----
+const SECTIONS = {
+  primary:   { label: 'Primary',   list: PRIMARIES },
+  secondary: { label: 'Secondary', list: SECONDARIES },
+  blade:     { label: 'Blades',    list: BLADES },
+  equipment: { label: 'Equipment', list: Object.keys(EQUIPMENT) },
+  operator:  { label: 'Operators', list: Object.keys(OPERATORS) },
+};
+const TYPE_NAMES = { ar: 'Assault rifle', ak: 'AK rifle', battle: 'Battle rifle', sil: 'Silenced rifle', smg: 'SMG', shotgun: 'Pump shotgun', autoshot: 'Auto shotgun',
+  lmg: 'Machine gun', dmr: 'Marksman rifle', sniper: 'Sniper rifle', pistol: 'Pistol', compact: 'Compact pistol', heavy: 'Heavy pistol', machpist: 'Machine pistol',
+  deagle: 'Hand cannon', revolver: 'Revolver', magnum: 'Magnum revolver', blade: 'Blade' };
+const itemName = (key, id) => key === 'equipment' ? EQUIPMENT[id].name : key === 'operator' ? OPERATORS[id].name : WEAPONS[id].name;
+const draft = cleanSet({ name: '' });
+let secKey = 'primary';
 function renderBuilder() {
-  chips('pPrimary', PRIMARIES, 'primary', v => WEAPONS[v].name);
-  chips('pSecondary', SECONDARIES, 'secondary', v => WEAPONS[v].name);
-  chips('pSpecial', Object.keys(SPECIALS), 'special', v => `${SPECIALS[v].name}`);
-  chips('pColor', COLORS, 'color');
+  $('secTabs').innerHTML = Object.entries(SECTIONS).map(([k, v]) =>
+    `<button class="chip ${k === secKey ? 'on' : ''}" data-sec="${k}">${v.label} <small style="opacity:.7">${v.list.length}</small></button>`).join('');
+  const q = $('itemSearch').value.toLowerCase().trim();
+  const items = SECTIONS[secKey].list.filter(id => itemName(secKey, id).toLowerCase().includes(q) ||
+    (WEAPONS[id] && TYPE_NAMES[WEAPONS[id].type].toLowerCase().includes(q)));
+  $('itemList').innerHTML = items.length ? items.map(id => {
+    const sub = WEAPONS[id] ? TYPE_NAMES[WEAPONS[id].type] : secKey === 'equipment' ? `Q · ${EQUIPMENT[id].cooldown}s` : (OPERATORS[id].woman ? 'Woman' : 'Man');
+    return `<button class="item ${draft[secKey] === id ? 'on' : ''}" data-id="${id}"><b>${esc(itemName(secKey, id))}</b><span>${sub}</span></button>`;
+  }).join('') : '<div style="opacity:.7;padding:8px">Nothing found.</div>';
+  $('picked').innerHTML = Object.keys(SECTIONS).map(k =>
+    `<span class="pick-${k === secKey ? 'on' : 'off'}" data-sec="${k}"><small>${SECTIONS[k].label}</small>${esc(itemName(k, draft[k]))}</span>`).join('');
+  $('pColor').innerHTML = COLORS.map(v => `<button class="swatch ${draft.color === v ? 'on' : ''}" data-v="${v}" style="background:${v}"></button>`).join('');
+  renderInfo();
 }
+function bar(label, v, txt) {
+  return `<div class="stat"><span>${label}</span><i><b style="width:${Math.max(4, Math.min(100, v * 100))}%"></b></i><em>${txt}</em></div>`;
+}
+function renderInfo() {
+  const id = draft[secKey];
+  let html = `<h4>${esc(itemName(secKey, id))}</h4>`;
+  const w = WEAPONS[id];
+  if (w && secKey !== 'equipment' && secKey !== 'operator') {
+    const dmg = w.damage * w.pellets;
+    html += `<div class="sub">${TYPE_NAMES[w.type]}</div>` +
+      bar('Damage', dmg / 330, Math.round(dmg)) +
+      (w.melee ? bar('Speed', 0.25 / w.fireDelay, (1 / w.fireDelay).toFixed(1) + '/s') + bar('Reach', w.range / 3, w.range + 'm')
+        : bar('Fire rate', 0.045 / w.fireDelay, Math.round(60 / w.fireDelay) + ' rpm') + bar('Range', w.range / 250, w.range + 'm') + bar('Magazine', w.mag / 100, w.mag)) +
+      bar('Mobility', (w.speed - 0.8) / 0.35, Math.round(w.speed * 100) + '%');
+  } else if (secKey === 'equipment') {
+    html += `<div class="sub">Press Q · cooldown ${EQUIPMENT[id].cooldown}s</div><p>${EQUIPMENT[id].desc}</p>`;
+    if (id === 'equipment2') html += `<p style="font-size:12px;opacity:.85">Lv1: ${levelText(1)}<br>Lv5: ${levelText(5)}</p>`;
+  } else {
+    html += `<div class="sub">Operator outfit${draft.equipment === 'equipment2' ? ' · your backup squad wears it too' : ''}</div>`;
+  }
+  $('itemInfo').innerHTML = html;
+  showPreview(secKey, id);
+}
+$('secTabs').addEventListener('click', e => { const b = e.target.closest('[data-sec]'); if (!b) return; secKey = b.dataset.sec; $('itemSearch').value = ''; renderBuilder(); });
+$('picked').addEventListener('click', e => { const b = e.target.closest('[data-sec]'); if (!b) return; secKey = b.dataset.sec; $('itemSearch').value = ''; renderBuilder(); });
+$('itemSearch').addEventListener('input', renderBuilder);
+$('itemList').addEventListener('click', e => { const b = e.target.closest('[data-id]'); if (!b) return; draft[secKey] = b.dataset.id; renderBuilder(); });
+$('pColor').addEventListener('click', e => { const b = e.target.closest('[data-v]'); if (!b) return; draft.color = b.dataset.v; renderBuilder(); });
+
+// 3D preview of the picked item
+let pv = null;
+function showPreview(key, id) {
+  if (!pv) {
+    const c = $('preview');
+    const r = new THREE.WebGLRenderer({ canvas: c, antialias: true, alpha: true });
+    r.setPixelRatio(Math.min(devicePixelRatio, 2));
+    r.toneMapping = THREE.ACESFilmicToneMapping;
+    const sc = new THREE.Scene();
+    sc.add(new THREE.HemisphereLight(0xffffff, 0x445566, 2.4));
+    const dl = new THREE.DirectionalLight(0xffffff, 3); dl.position.set(2, 3, 4); sc.add(dl);
+    const cam = new THREE.PerspectiveCamera(32, 2, 0.01, 50);
+    const pivot = new THREE.Group(); sc.add(pivot);
+    pv = { r, sc, cam, pivot, obj: null, key: '' };
+    const loop = () => {
+      requestAnimationFrame(loop);
+      if (document.getElementById('tab-sets').classList.contains('hidden') || !playingMenuVisible()) return;
+      const w = c.clientWidth, h = c.clientHeight;
+      if (c.width !== Math.floor(w * r.getPixelRatio())) { r.setSize(w, h, false); cam.aspect = w / h; cam.updateProjectionMatrix(); }
+      pivot.rotation.y += 0.012;
+      r.render(sc, cam);
+    };
+    loop();
+  }
+  if (pv.key === key + id) return;
+  pv.key = key + id;
+  if (pv.obj) pv.pivot.remove(pv.obj);
+  let obj;
+  if (WEAPONS[id] && key !== 'equipment' && key !== 'operator') { obj = buildGun(id); obj.rotation.y = Math.PI / 2; }
+  else obj = buildModel(id);
+  const wrap = new THREE.Group(); wrap.add(obj);
+  const b = new THREE.Box3().setFromObject(wrap), size = b.getSize(new THREE.Vector3()), center = b.getCenter(new THREE.Vector3());
+  obj.position.sub(center);
+  const big = Math.max(size.x, size.y, size.z) || 1;
+  pv.obj = wrap;
+  pv.pivot.add(wrap);
+  pv.cam.position.set(0, big * 0.35, big * 1.9);
+  pv.cam.lookAt(0, 0, 0);
+}
+const playingMenuVisible = () => !$('menu').classList.contains('hidden');
+
 function renderMySets() {
   $('mySets').innerHTML = mySets.map((s, i) => `<div class="setrow ${i === equipped ? 'on' : ''}">
     <span class="dot" style="background:${s.color}"></span><div class="info"><b>${esc(s.name)}</b><span>${setLine(s)}</span></div>
@@ -780,7 +968,7 @@ function renderMySets() {
 $('mySets').addEventListener('click', e => {
   const t = e.target;
   if (t.dataset.eq !== undefined) equipSet(+t.dataset.eq);
-  if (t.dataset.edit !== undefined) { Object.assign(draft, mySets[+t.dataset.edit]); $('setName').value = draft.name; renderBuilder(); $('setMsg').textContent = 'Editing — save to add it as a new set.'; }
+  if (t.dataset.edit !== undefined) { Object.assign(draft, mySets[+t.dataset.edit]); $('setName').value = draft.name; renderBuilder(); $('setMsg').textContent = 'Editing — save to add it as a new set.'; document.getElementById('setName').scrollIntoView({ behavior: 'smooth' }); }
   if (t.dataset.del !== undefined) {
     if (mySets.length <= 1) { $('setMsg').textContent = 'You need at least one set.'; return; }
     const i = +t.dataset.del;
@@ -796,7 +984,7 @@ function equipSet(i) {
   else $('setMsg').textContent = `Equipped "${currentSet().name}"!`;
 }
 $('saveSet').addEventListener('click', async () => {
-  draft.name = $('setName').value.trim() || `${WEAPONS[draft.primary].name} set`;
+  draft.name = $('setName').value.trim() || `${WEAPONS[draft.primary].name} ${OPERATORS[draft.operator].name.split(' ')[0]}`;
   const set = cleanSet(draft);
   mySets.push(set);
   equipped = mySets.length - 1;
@@ -810,7 +998,7 @@ $('saveSet').addEventListener('click', async () => {
     } catch { $('setMsg').textContent += ' (Sharing failed.)'; }
   }
 });
-$('newSet').addEventListener('click', () => { Object.assign(draft, { name: '', primary: 'rifle', secondary: 'pistol', special: 'medkit', color: COLORS[4] }); $('setName').value = ''; renderBuilder(); $('setMsg').textContent = ''; });
+$('newSet').addEventListener('click', () => { Object.assign(draft, cleanSet({ name: '' })); $('setName').value = ''; renderBuilder(); $('setMsg').textContent = ''; });
 let lastResults = [];
 $('searchBtn').addEventListener('click', async () => {
   $('results').innerHTML = 'Searching…';
@@ -907,7 +1095,7 @@ function frame(nowMs) {
     const roll = me.slideT > 0 ? 0.07 : !me.alive ? 0.4 : strafeTilt;
     camera.rotation.set(me.pitch, me.yaw, roll);
   }
-  const targetFov = settings.fov / (adsT > 0.01 ? 1 + (w.zoom - 1) * adsT : 1) + (me.sprinting && speed > 6 ? 7 : 0) + (me.slideT > 0 || me.dashT > 0 ? 10 : 0);
+  const targetFov = settings.fov / (adsT > 0.01 ? 1 + (w.zoom - 1) * adsT : 1) + (me.sprinting && speed > 6 ? 7 : 0) + (me.slideT > 0 || false ? 10 : 0);
   fov += (targetFov - fov) * Math.min(1, dt * 10);
   if (Math.abs(camera.fov - fov) > 0.01) { camera.fov = fov; camera.updateProjectionMatrix(); }
 
@@ -919,7 +1107,7 @@ function frame(nowMs) {
   stabT = Math.max(0, stabT - dt);
   const melee = w.melee;
   const hip = melee ? [0.24, -0.24, -0.4] : [0.17, -0.19, -0.48];
-  const aim = [0, -(SIGHT_HEIGHT[me.weapon] || 0.1), -0.3];
+  const aim = [0, -viewModel.sight, -0.3];
   const h = viewModel.holder;
   const sprintPose = me.sprinting && speed > 6 ? 1 : 0;
   h.position.set(
@@ -928,8 +1116,8 @@ function frame(nowMs) {
     hip[2] + (aim[2] - hip[2]) * adsT + kick * 0.6 - Math.sin(stabT / 0.25 * Math.PI) * 0.25,
   );
   const reloadP = me.reloadUntil > 0 ? 1 - (me.reloadUntil - t) / w.reload : 0;
-  h.rotation.set(kick * 1.2 - Math.sin(reloadP * Math.PI) * 0.7, sprintPose * 0.6 + (me.weapon === 'knife' ? 0.3 : 0), sprintPose * 0.3 + Math.sin(reloadP * Math.PI) * 0.4);
-  viewModel.root.visible = me.alive && me.joined && !(me.weapon === 'sniper' && adsT > 0.85);
+  h.rotation.set(kick * 1.2 - Math.sin(reloadP * Math.PI) * 0.7, sprintPose * 0.6 + (w.melee ? 0.3 : 0.1 * (1 - adsT)), sprintPose * 0.3 + Math.sin(reloadP * Math.PI) * 0.4);
+  viewModel.root.visible = me.alive && me.joined && !(w.type === 'sniper' && adsT > 0.85);
   if (t > flashUntil) { viewModel.flash.visible = false; flashLight.intensity = 0; }
   vmCamera.fov = 70 - adsT * 12;
   vmCamera.updateProjectionMatrix();
@@ -940,6 +1128,16 @@ function frame(nowMs) {
     av.update(dt, av.state);
     av.root.position.y -= (1 - av.state.rise) * 1.7;
   }
+  for (const av of backupAvatars.values()) if (av.state) av.update(dt, av.state);
+  for (const g of grenadeMeshes.values()) if (g.userData.target) { g.position.lerp(g.userData.target, Math.min(1, dt * 15)); g.rotation.x += dt * 8; }
+  updateMarks(t);
+  if (shake > 0) { camera.position.x += (Math.random() - 0.5) * shake; camera.position.y += (Math.random() - 0.5) * shake; shake = Math.max(0, shake - dt * 1.2); }
+  if (sensor && t > sensor.until) { sensor = null; sensorMesh.visible = false; }
+  blindT = Math.max(0, blindT - dt);
+  $('blindfx').style.opacity = Math.min(1, blindT / Math.max(0.5, blindMax) * 1.6);
+  const nv = t < nvUntil;
+  canvas.style.filter = nv ? 'brightness(1.7) saturate(0.2) sepia(1) hue-rotate(60deg) saturate(3)' : '';
+  $('shieldfx').style.opacity = t < shieldUntil ? 1 : 0;
   if (hillMesh && hillMesh.visible) hillMesh.material.opacity = 0.18 + Math.sin(t * 3) * 0.06;
   updateFx(dt);
 

@@ -7,7 +7,7 @@ const fs = require('fs');
 const path = require('path');
 const { WebSocketServer } = require('ws');
 const S = require('./public/shared.js');
-const { MAX_HP, WEAPONS, PRIMARIES, SECONDARIES, SPECIALS, SUMMON, DEFAULT_SETS, cleanSet,
+const { MAX_HP, WEAPONS, PRIMARIES, SECONDARIES, BLADES, EQUIPMENT, OPERATORS, BACKUP, GRENADE, SUMMON, DEFAULT_SETS, cleanSet, ONESHOT_GUN,
   MODES, GUNGAME_ORDER, GUNGAME_KILLS_PER_LEVEL, HORDE_WAVES, MAPS, collides, moveBody } = S;
 
 const PORT = process.env.PORT || 3000;
@@ -143,7 +143,8 @@ class Room {
     this.wallBoxes = this.boxes.filter(b => b.kind !== 'ground');
     this.nav = getNav(mapId);
     this.ents = new Map();
-    this.undead = new Map();
+    this.minions = new Map();
+    this.grenades = [];
     this.clock = 0;
     this.tickCount = 0;
     this.emptySince = 0;
@@ -167,31 +168,33 @@ class Room {
   }
 
   isEnemy(a, b) {
-    const oa = a.isUndead ? a.owner : a.id, ob = b.isUndead ? b.owner : b.id;
+    const oa = a.minion ? a.owner : a.id, ob = b.minion ? b.owner : b.id;
     if (oa === ob) return false;
     if (this.teamMode || this.mode === 'horde') return a.team !== b.team;
     return true;
   }
-  isProtected(e) { return !e.isUndead && this.clock - e.spawnedAt < SPAWN_PROTECT && e.lastShot < e.spawnedAt; }
+  isProtected(e) { return !e.minion && this.clock - e.spawnedAt < SPAWN_PROTECT && e.lastShot < e.spawnedAt; }
   infected(e) { return this.mode === 'infection' && e.team === 1; }
 
   loadout(e) {
     switch (this.mode) {
       case 'gungame': return [GUNGAME_ORDER[Math.min(e.gunLevel, GUNGAME_ORDER.length - 1)]];
-      case 'oneshot': return ['revolver', 'knife'];
-      case 'snipers': return ['sniper', 'knife'];
-      case 'knives': return ['knife'];
+      case 'oneshot': return [ONESHOT_GUN, e.set.blade];
+      case 'snipers': return ['awm', e.set.blade];
+      case 'knives': return [e.set.blade];
       case 'infection': if (e.team === 1) return ['claws']; break;
     }
-    return [e.set.primary, e.set.secondary];
+    if (e.minion) return [e.weapon];
+    return [e.set.primary, e.set.secondary, e.set.blade];
   }
   specialOf(e) {
+    if (e.minion) return null;
     if (['gungame', 'oneshot', 'snipers', 'knives'].includes(this.mode) || this.infected(e)) return null;
-    return e.set.special;
+    return e.set.equipment;
   }
   currentWeapon(e) { const lo = this.loadout(e); return lo.includes(e.weapon) ? e.weapon : lo[0]; }
   maxHp(e) { return this.infected(e) ? (e.alpha ? 2000 : 700) : MAX_HP; }
-  startAmmo(w) { return this.mode === 'oneshot' && w === 'revolver' ? 1 : WEAPONS[w].mag; }
+  startAmmo(w) { return this.mode === 'oneshot' && w === ONESHOT_GUN ? 1 : WEAPONS[w].mag; }
 
   // ----- spawning -----
   pickSpawn(e) {
@@ -199,7 +202,7 @@ class Room {
     if (this.teamMode && this.mode !== 'infection') pool = this.nav.spawns.team[e.team];
     if (!pool.length) pool = this.nav.spawns.ffa;
     let best = pool[0], bestScore = -Infinity;
-    const threats = [...this.ents.values(), ...this.undead.values()].filter(q => !q.dead && (q.isUndead || q.joined) && this.isEnemy(e, q));
+    const threats = [...this.ents.values(), ...this.minions.values()].filter(q => !q.dead && (q.minion || q.joined) && this.isEnemy(e, q));
     for (let k = 0; k < 24; k++) {
       const s = pick(pool);
       let nearest = 999;
@@ -222,7 +225,7 @@ class Room {
     this.send(e, { t: 'spawn', seq: e.spawnSeq, x: e.x, y: e.y, z: e.z, yaw: e.yaw, weapons: this.loadout(e), special: this.specialOf(e), hp: e.hp, mhp: this.maxHp(e), ammo1: this.mode === 'oneshot' });
   }
   balanceTeam() {
-    if (this.mode === 'infection') return 0;
+    if (this.mode === 'infection' || this.mode === 'horde') return 0;
     const c = [0, 0];
     for (const q of this.ents.values()) if (q.joined) c[q.team]++;
     return c[0] <= c[1] ? 0 : 1;
@@ -245,7 +248,7 @@ class Room {
     const e = this.newEntity(true, null);
     e.name = BOT_NAMES.find(n => !used.has(n)) || 'Bot' + e.id;
     e.set = Math.random() < 0.6 ? cleanSet(pick(DEFAULT_SETS))
-      : cleanSet({ name: 'Bot', primary: pick(PRIMARIES), secondary: pick(SECONDARIES), special: pick(Object.keys(SPECIALS)), color: pick(S.COLORS) });
+      : cleanSet({ name: 'Bot', primary: pick(PRIMARIES), secondary: pick(SECONDARIES), blade: pick(BLADES), equipment: pick(Object.keys(EQUIPMENT)), operator: pick(Object.keys(OPERATORS)), color: pick(S.COLORS) });
     e.team = this.balanceTeam();
     e.joined = true;
     e.skill = rand(0.55, 0.9);
@@ -258,7 +261,7 @@ class Room {
     const bigger = c[0] > c[1] ? 0 : 1;
     const bots = [...this.ents.values()].filter(e => e.bot);
     const v = bots.find(b => b.team === bigger) || bots[0];
-    if (v) { this.removeUndeadOf(v.id); this.ents.delete(v.id); }
+    if (v) { this.removeMinionsOf(v.id); this.ents.delete(v.id); }
   }
   fillBots() {
     let total = this.fighters().length;
@@ -271,42 +274,74 @@ class Room {
     const wName = this.currentWeapon(b);
     const w = WEAPONS[wName];
     const C = this.clock;
+    const backup = b.minion && b.type === 'backup';
+    const owner = backup ? this.ents.get(b.owner) : null;
+    const leader = backup && b.role !== 'leader' ? [...this.minions.values()].find(m => m.type === 'backup' && m.owner === b.owner && m.role === 'leader') : null;
     if (!b.nextScan || C >= b.nextScan) {
       b.nextScan = C + 0.25;
       let best = null, bd = Infinity;
       const eye = eyeOf(b);
-      const consider = q => {
-        if (q.dead || !this.isEnemy(b, q) || this.isProtected(q)) return;
-        const d = dist3(b, q);
-        if (d > 70 || d >= bd) return;
-        if (this.lineBlocked(eye, chestOf(q))) return;
-        best = q; bd = d;
-      };
-      for (const q of this.ents.values()) if (q.joined) consider(q);
-      for (const z of this.undead.values()) consider(z);
+      const canSee = q => !q.dead && this.isEnemy(b, q) && !this.isProtected(q) && dist3(b, q) <= 70 && !this.lineBlocked(eye, chestOf(q));
+      // backup soldiers shoot whatever their leader picked, if they can see it
+      if (leader && leader.target && canSee(leader.target)) best = leader.target;
+      else {
+        const consider = q => {
+          if (!canSee(q)) return;
+          const d = dist3(b, q);
+          if (d < bd) { best = q; bd = d; }
+        };
+        for (const q of this.ents.values()) if (q.joined) consider(q);
+        for (const z of this.minions.values()) consider(z);
+      }
       if (best && best !== b.target) b.seenAt = C;
       b.target = best;
     }
     let mx = 0, mz = 0;
     const speed = 5.2 * w.speed;
-    const t = b.target && !b.target.dead && (this.ents.has(b.target.id) || this.undead.has(b.target.id)) ? b.target : null;
-    const special = this.specialOf(b);
-    if (special === 'medkit' && b.hp < 200 && C >= b.abilityReady) this.useAbility(b);
-    if (t) {
+    const t = b.target && !b.target.dead && (this.ents.has(b.target.id) || this.minions.has(b.target.id)) ? b.target : null;
+    const eq = this.specialOf(b);
+    const blind = C < (b.blindUntil || 0);
+    if (eq && C >= b.abilityReady) {
+      const d = t ? dist3(b, t) : 99;
+      if ((eq === 'equipment4' && b.hp < 200) || (eq === 'equipment8' && b.hp < 250) ||
+          (t && eq === 'm67' && d > 7 && d < 30) || (t && eq === 'equipment2') || (t && eq === 'equipment7' && b.hp < 300) ||
+          (t && eq === 'equipment6' && d < 12) || (t && eq === 'equipment5')) {
+        const dir = t ? [t.x - b.x, t.y + 1 - b.y - 1.6, t.z - b.z] : null;
+        this.useAbility(b, dir ? { dir } : {});
+      }
+    }
+    if (t && !blind) {
       const dx = t.x - b.x, dz = t.z - b.z, d = Math.hypot(dx, dz) || 1;
       b.yaw = Math.atan2(-dx, -dz);
       b.pitch = Math.atan2((t.y + 1.2) - (b.y + 1.6), d);
-      const want = w.melee || wName === 'shotgun' ? 1.5 : wName === 'sniper' ? 28 : 13;
+      const want = w.melee || w.pellets > 1 ? 1.5 : w.scope ? 28 : backup ? 9 : 13;
       const fwd = d > want + 3 ? 1 : d < want - 3 ? -0.6 : 0;
       if (!b.strafeUntil || C > b.strafeUntil) { b.strafeDir = Math.random() < 0.5 ? -1 : 1; b.strafeUntil = C + rand(0.6, 1.8); }
       const side = w.melee ? 0.3 : 0.8;
       mx = -Math.sin(b.yaw) * fwd + Math.cos(b.yaw) * b.strafeDir * side;
       mz = -Math.cos(b.yaw) * fwd - Math.sin(b.yaw) * b.strafeDir * side;
       b.path = null;
-      if (special === 'summon' && C >= b.abilityReady && d < 40) {
-        if (this.undead.size <= 6 && Math.random() < 0.4) this.useAbility(b); else b.abilityReady = C + 8;
+      // grenadier throws grenades that get faster and stronger every level
+      if (backup && b.role === 'grenadier' && C >= (b.nextNade || 0) && d > 5 && d < 32) {
+        b.nextNade = C + BACKUP.grenadeEvery[b.lvl - 1];
+        this.throwGrenade(b, [t.x - b.x, (t.y + 1) - (b.y + 1.6), t.z - b.z], BACKUP.grenadeDamage[b.lvl - 1], true);
       }
       if (C - b.seenAt > 0.6 / b.skill) this.botFire(b, t, d);
+    } else if (blind) {
+      b.yaw += dt * 2;
+    } else if (backup && owner) {
+      // no enemy: stay close to the player who called you
+      const d = dist2d(b, owner);
+      if (d > 5) {
+        if (!b.path || !b.path.length || C - b.pathAt > 1.5) { b.pathAt = C; b.path = this.nav.findPath(b.x, b.z, owner.x, owner.z); }
+        if (b.path && b.path.length) {
+          const [px, pz] = b.path[0];
+          const dx = px - b.x, dz = pz - b.z, dd = Math.hypot(dx, dz);
+          if (dd < 0.8) b.path.shift(); else { mx = dx / dd; mz = dz / dd; b.yaw = Math.atan2(-dx, -dz); }
+        }
+        if (d > 12 && (!b.path || !b.path.length)) { const dx = owner.x - b.x, dz = owner.z - b.z; mx = dx / d; mz = dz / d; }
+      } else b.yaw += Math.sin(C + b.id) * dt * 0.5;
+      if (!w.melee && b.ammo < w.mag && C > b.reloadUntil) { b.reloadUntil = C + w.reload; b.ammo = w.mag; }
     } else {
       if (!b.path || !b.path.length || C - b.pathAt > 4) {
         b.pathAt = C;
@@ -316,8 +351,8 @@ class Room {
         } else {
           let goal = null, bd = Infinity;
           if (Math.random() < 0.7) {
-            for (const q of [...this.ents.values(), ...this.undead.values()]) {
-              if (q.dead || (!q.isUndead && !q.joined) || !this.isEnemy(b, q)) continue;
+            for (const q of [...this.ents.values(), ...this.minions.values()]) {
+              if (q.dead || (!q.minion && !q.joined) || !this.isEnemy(b, q)) continue;
               const d = dist2d(b, q);
               if (d < bd) { bd = d; goal = q; }
             }
@@ -334,12 +369,16 @@ class Room {
       }
       if (!w.melee && b.ammo < this.startAmmo(wName) && C > b.reloadUntil && this.mode !== 'oneshot') { b.reloadUntil = C + w.reload; b.ammo = w.mag; }
     }
+    // pick the right weapon: blade up close, secondary instead of a scope at short range
     const lo = this.loadout(b);
     if (lo.length > 1) {
-      const close = t && dist3(b, t) < 3;
-      if (lo[1] === 'knife') b.weapon = close || (this.mode === 'oneshot' && b.ammo <= 0) ? 'knife' : lo[0];
-      else if (lo[0] === 'sniper' && t && dist3(b, t) < 8) b.weapon = lo[1];
-      else if (!t) b.weapon = lo[0];
+      const d = t ? dist3(b, t) : 99;
+      const blade = lo.find(x => WEAPONS[x].melee);
+      const prev = b.weapon;
+      if (blade && (d < 3 || (this.mode === 'oneshot' && b.ammo <= 0 && b.weapon !== blade))) b.weapon = blade;
+      else if (WEAPONS[lo[0]].scope && d < 8 && lo[1] && !WEAPONS[lo[1]].melee) b.weapon = lo[1];
+      else b.weapon = lo[0];
+      if (b.weapon !== prev && !WEAPONS[b.weapon].melee && this.mode !== 'oneshot') b.ammo = WEAPONS[b.weapon].mag;
     }
     const len = Math.hypot(mx, mz);
     const sp = len > 0 ? speed / Math.max(1, len) : 0;
@@ -360,13 +399,13 @@ class Room {
     }
     b.lastShot = C;
     if (!w.melee) b.ammo--;
-    const base = { rifle: 0.3, smg: 0.27, shotgun: 0.45, pistol: 0.3, sniper: 0.4, lmg: 0.26, dmr: 0.35, revolver: 0.3, knife: 0.8, claws: 0.85 }[wName];
+    const base = ({ ar: 0.3, ak: 0.29, battle: 0.3, sil: 0.3, smg: 0.27, shotgun: 0.45, autoshot: 0.45, lmg: 0.26, dmr: 0.35, sniper: 0.4, pistol: 0.3, compact: 0.28, heavy: 0.3, machpist: 0.25, deagle: 0.3, revolver: 0.3, magnum: 0.3, blade: 0.8, claws: 0.85 })[w.type] || 0.3;
     const tSpeed = Math.hypot(t.vx || 0, t.vz || 0);
     const ends = [];
     let total = 0, head = false;
     for (let i = 0; i < w.pellets; i++) {
       let p = base * b.skill * Math.max(0.12, 1 - d / (w.range * 0.9)) * (tSpeed > 3 ? 0.7 : 1);
-      if (wName === 'shotgun' && d > 15) p *= 0.4;
+      if (w.pellets > 1 && d > 15) p *= 0.4;
       const c = chestOf(t);
       if (Math.random() < p) {
         const isHead = Math.random() < 0.12;
@@ -392,37 +431,125 @@ class Room {
   }
 
   // ----- specials -----
-  useAbility(e) {
-    const sp = this.specialOf(e);
-    if (!sp || e.dead || this.match.over || this.clock < e.abilityReady) return;
-    e.abilityReady = this.clock + SPECIALS[sp].cooldown;
-    if (sp === 'medkit') { e.hp = Math.min(this.maxHp(e), e.hp + 250); this.send(e, { t: 'healed' }); }
-    if (sp === 'summon') this.summon(e);
-    // dash happens on the player's own computer; the server only tracks the cooldown
+  // ----- equipment (Q) -----
+  useAbility(e, msg = {}) {
+    const eq = this.specialOf(e);
+    if (!eq || e.dead || this.match.over || this.clock < e.abilityReady) return;
+    e.abilityReady = this.clock + EQUIPMENT[eq].cooldown;
+    const C = this.clock;
+    let dir = Array.isArray(msg.dir) && msg.dir.length === 3 && msg.dir.every(Number.isFinite) ? msg.dir : null;
+    if (!dir) dir = [-Math.sin(e.yaw) * Math.cos(e.pitch), Math.sin(e.pitch), -Math.cos(e.yaw) * Math.cos(e.pitch)];
+    switch (eq) {
+      case 'm67': this.throwGrenade(e, dir, 400, false); break;
+      case 'equipment2': this.callBackup(e); break;
+      case 'equipment4': e.hp = Math.min(this.maxHp(e), e.hp + 250); break;
+      case 'equipment5': e.focusUntil = C + 8; break;
+      case 'equipment6': this.flashlight(e, dir); break;
+      case 'equipment7': e.shieldUntil = C + 6; break;
+      case 'equipment8': e.hp = Math.min(this.maxHp(e), e.hp + 150); break;
+      // drone, night vision and camera sensor are effects on the player's own screen
+    }
+    this.send(e, { t: 'equip', eq });
+  }
+
+  flashlight(e, dir) {
+    const len = Math.hypot(...dir) || 1;
+    const f = dir.map(v => v / len);
+    for (const q of [...this.ents.values(), ...this.minions.values()]) {
+      if (q.dead || (!q.minion && !q.joined) || !this.isEnemy(e, q) || q.isUndead) continue;
+      const v = [q.x - e.x, q.y + 1.5 - (e.y + 1.6), q.z - e.z];
+      const d = Math.hypot(...v);
+      if (d > 16 || d < 0.1) continue;
+      if ((v[0] * f[0] + v[1] * f[1] + v[2] * f[2]) / d < Math.cos(0.6)) continue;
+      if (this.lineBlocked(eyeOf(e), eyeOf(q))) continue;
+      q.blindUntil = this.clock + 2.5;
+      this.send(q, { t: 'blind', dur: 2.5 });
+    }
+    this.broadcast({ t: 'flash', id: e.id });
+  }
+
+  // ----- grenades -----
+  throwGrenade(thrower, dir, damage, lob) {
+    const len = Math.hypot(...dir) || 1;
+    const n = dir.map(v => v / len);
+    const sp = lob ? Math.min(GRENADE.speed, 6 + len * 0.45) : GRENADE.speed;
+    const eye = eyeOf(thrower);
+    this.grenades.push({
+      id: nextId++, thrower, owner: thrower.minion ? thrower.owner : thrower.id, team: thrower.team,
+      x: eye[0] + n[0] * 0.5, y: eye[1] + n[1] * 0.5, z: eye[2] + n[2] * 0.5,
+      vx: n[0] * sp, vy: n[1] * sp + 3.5, vz: n[2] * sp, fuse: GRENADE.fuse, damage,
+    });
+  }
+  tickGrenades(dt) {
+    for (let i = this.grenades.length - 1; i >= 0; i--) {
+      const g = this.grenades[i];
+      g.vy -= 22 * dt;
+      for (const axis of ['x', 'y', 'z']) {
+        const v = 'v' + axis;
+        const old = g[axis];
+        g[axis] += g[v] * dt;
+        if (collides(this.boxes, g.x, g.y - 0.08, g.z, 0.08, 0.16)) {
+          g[axis] = old;
+          g[v] *= axis === 'y' ? -0.35 : -0.45;
+          if (axis === 'y') { g.vx *= 0.7; g.vz *= 0.7; }
+        }
+      }
+      g.fuse -= dt;
+      if (g.fuse > 0) continue;
+      this.grenades.splice(i, 1);
+      this.broadcast({ t: 'boom', x: r2(g.x), y: r2(g.y), z: r2(g.z) });
+      const attacker = this.ents.get(g.thrower.id) || this.minions.get(g.thrower.id) || { minion: true, owner: g.owner, team: g.team, x: g.x, z: g.z, id: -2 };
+      const victims = [...this.ents.values()].filter(q => q.joined && !q.dead).concat([...this.minions.values()]);
+      for (const q of victims) {
+        const own = q.minion ? q.owner : q.id;
+        if (own !== g.owner && !this.isEnemy(attacker, q)) continue;
+        if (own === g.owner && q.id !== g.owner) continue;   // your grenades don't hurt your backup
+        const c = chestOf(q);
+        const d = Math.hypot(c[0] - g.x, c[1] - g.y, c[2] - g.z);
+        if (d > GRENADE.radius || this.lineBlocked([g.x, g.y + 0.3, g.z], c)) continue;
+        let dmg = g.damage * (1 - d / GRENADE.radius);
+        if (q.id === g.owner) dmg *= 0.35;                   // a little self damage
+        if (dmg > 5) this.applyDamage(attacker, q, Math.round(dmg), 'm67', false, true);
+      }
+    }
+  }
+
+  // ----- Field Radio backup squad -----
+  callBackup(o) {
+    this.removeMinionsOf(o.id);
+    o.backupLevel = Math.min(BACKUP.maxLevel, (o.backupLevel || 0) + 1);
+    const lvl = o.backupLevel;
+    const roles = ['leader', 'gunner', 'grenadier'];
+    const names = { leader: 'Leader', gunner: 'Gunner', grenadier: 'Grenadier' };
+    roles.forEach((role, i) => {
+      let x = o.x, z = o.z;
+      for (let tries = 0; tries < 16; tries++) {
+        const a = (i / 3) * Math.PI * 2 + rand(-0.4, 0.4), r = rand(1.6, 2.8);
+        const cx = o.x + Math.cos(a) * r, cz = o.z + Math.sin(a) * r;
+        if (!collides(this.boxes, cx, o.y + 0.05, cz, 0.35, 1.8)) { x = cx; z = cz; break; }
+      }
+      const weapon = BACKUP[role][lvl - 1];
+      const id = nextId++;
+      this.minions.set(id, {
+        id, minion: true, type: 'backup', role, lvl, owner: o.id, team: o.team, name: `${names[role]} Lv${lvl}`, op: o.set.operator,
+        x, y: o.y + 0.05, z, vx: 0, vy: 0, vz: 0, r: 0.35, h: 1.8, onGround: false, yaw: o.yaw, pitch: 0, crouch: false,
+        hp: BACKUP.hp(lvl) + (role === 'leader' ? 100 : 0), mhp: BACKUP.hp(lvl) + (role === 'leader' ? 100 : 0),
+        dead: false, dieAt: this.clock + BACKUP.life, weapon, ammo: WEAPONS[weapon].mag, reloadUntil: 0, lastShot: -9,
+        skill: 0.72 + lvl * 0.05, seenAt: -9, target: null, path: null, pathAt: -9, nextNade: this.clock + 2, spawnedAt: -99,
+      });
+    });
+    this.broadcast({ t: 'backup', id: o.id, name: o.name, lvl });
   }
 
   // ----- undead -----
   makeUndead(owner, team, x, y, z, hp, damage) {
     const id = nextId++;
-    this.undead.set(id, {
-      id, isUndead: true, owner, team, name: 'Undead', x, y, z, vx: 0, vy: 0, vz: 0, r: 0.35, h: 1.8, onGround: false, yaw: 0,
-      hp, damage, dead: false, dieAt: owner === -1 ? Infinity : this.clock + SUMMON.life, lastHit: -9, target: null, path: null, pathAt: -9, rise: this.clock,
+    this.minions.set(id, {
+      id, minion: true, isUndead: true, type: 'undead', owner, team, name: 'Undead', x, y, z, vx: 0, vy: 0, vz: 0, r: 0.35, h: 1.8, onGround: false, yaw: 0,
+      hp, damage, dead: false, dieAt: Infinity, lastHit: -9, target: null, path: null, pathAt: -9, rise: this.clock,
     });
   }
-  summon(o) {
-    this.removeUndeadOf(o.id);
-    for (let i = 0; i < SUMMON.count; i++) {
-      let x = o.x, z = o.z;
-      for (let tries = 0; tries < 12; tries++) {
-        const a = rand(0, Math.PI * 2), r = rand(1.5, 3);
-        const cx = o.x + Math.cos(a) * r, cz = o.z + Math.sin(a) * r;
-        if (!collides(this.boxes, cx, o.y + 0.05, cz, 0.35, 1.8)) { x = cx; z = cz; break; }
-      }
-      this.makeUndead(o.id, o.team, x, o.y + 0.05, z, SUMMON.hp, SUMMON.damage);
-    }
-    this.broadcast({ t: 'summon', id: o.id });
-  }
-  removeUndeadOf(ownerId) { for (const [id, z] of this.undead) if (z.owner === ownerId) this.undead.delete(id); }
+  removeMinionsOf(ownerId) { for (const [id, z] of this.minions) if (z.owner === ownerId) this.minions.delete(id); }
   undeadThink(z, dt) {
     const C = this.clock;
     if (C - z.rise < 0.8) { moveBody(z, dt, this.boxes); return; }
@@ -434,7 +561,7 @@ class Room {
         const d = dist3(z, q);
         if (d < bd) { bd = d; best = q; }
       }
-      if (!best) for (const q of this.undead.values()) {   // summoned undead also fight horde undead
+      if (!best) for (const q of this.minions.values()) {   // summoned undead also fight horde undead
         if (q === z || !this.isEnemy(z, q)) continue;
         const d = dist3(z, q);
         if (d < bd && d < 25) { bd = d; best = q; }
@@ -442,7 +569,7 @@ class Room {
       z.target = best;
     }
     let mx = 0, mz = 0;
-    const t = z.target && !z.target.dead && (this.ents.has(z.target.id) || this.undead.has(z.target.id)) ? z.target : null;
+    const t = z.target && !z.target.dead && (this.ents.has(z.target.id) || this.minions.has(z.target.id)) ? z.target : null;
     if (t) {
       const d = dist3(z, t);
       const direct = d < 4 || !this.lineBlocked([z.x, z.y + 0.6, z.z], [t.x, t.y + 0.6, t.z]);
@@ -471,23 +598,25 @@ class Room {
   // ----- damage -----
   applyDamage(attacker, victim, amount, wName, head) {
     if (victim.dead || this.match.over || this.isProtected(victim)) return;
+    if (!attacker.minion && this.clock < (attacker.focusUntil || 0)) amount = Math.round(amount * 1.5);   // rangefinder
+    if (this.clock < (victim.shieldUntil || 0)) amount = Math.round(amount * 0.3);                         // ballistic shield
     victim.hp -= amount;
-    const shooter = attacker.isUndead ? null : attacker;
+    const shooter = attacker.minion ? null : attacker;
     if (shooter && !shooter.bot) this.send(shooter, { t: 'hit', head, kill: victim.hp <= 0 });
-    if (!victim.isUndead) this.send(victim, { t: 'hurt', from: [attacker.x, attacker.z], amount });
+    if (!victim.minion) this.send(victim, { t: 'hurt', from: [attacker.x, attacker.z], amount });
     if (victim.hp > 0) return;
-    if (victim.isUndead) {
-      this.undead.delete(victim.id);
-      this.broadcast({ t: 'undeadDie', id: victim.id });
-      if (this.mode === 'horde' && shooter) shooter.kills++;
+    if (victim.minion) {
+      this.minions.delete(victim.id);
+      this.broadcast({ t: 'minionDie', id: victim.id });
+      if (this.mode === 'horde' && victim.owner === -1 && shooter) shooter.kills++;
       return;
     }
-    const killer = attacker.isUndead ? this.ents.get(attacker.owner) : attacker;
+    const killer = attacker.minion ? this.ents.get(attacker.owner) : attacker;
     victim.hp = 0;
     victim.dead = true;
     victim.deaths++;
     victim.respawnAt = this.mode === 'horde' ? Infinity : this.clock + RESPAWN_TIME;
-    this.removeUndeadOf(victim.id);
+    this.removeMinionsOf(victim.id);
     const kName = killer ? killer.name : 'Undead';
     this.send(victim, { t: 'died', by: kName, in: this.mode === 'horde' ? -1 : RESPAWN_TIME });
     this.broadcast({ t: 'kill', killer: kName, kt: killer ? killer.team : 1, victim: victim.name, vt: victim.team, w: wName, head });
@@ -499,9 +628,9 @@ class Room {
     killer.kills++;
     if (this.mode === 'tdm') this.match.teamScore[killer.team]++;
     if (this.mode === 'oneshot') {
-      if (killer.bot) killer.ammo++; else this.send(killer, { t: 'ammo', w: 'revolver', add: 1 });
+      if (killer.bot) killer.ammo++; else this.send(killer, { t: 'ammo', w: ONESHOT_GUN, add: 1 });
     }
-    if (this.mode === 'gungame' && !attacker.isUndead) {
+    if (this.mode === 'gungame' && !attacker.minion) {
       killer.levelKills = (killer.levelKills || 0) + 1;
       if (killer.levelKills >= GUNGAME_KILLS_PER_LEVEL) {
         killer.levelKills = 0;
@@ -527,8 +656,8 @@ class Room {
     if (!Array.isArray(msg.hits)) return;
     const byTarget = new Map();
     for (const h of msg.hits.slice(0, w.pellets)) {
-      const target = this.ents.get(h.id) || this.undead.get(h.id);
-      if (!target || target.dead || (!target.isUndead && !target.joined) || !this.isEnemy(p, target)) continue;
+      const target = this.ents.get(h.id) || this.minions.get(h.id);
+      if (!target || target.dead || (!target.minion && !target.joined) || !this.isEnemy(p, target)) continue;
       const eye = eyeOf(p);
       const d = Math.hypot(eye[0] - target.x, eye[1] - target.y - 1, eye[2] - target.z);
       if (d > w.range + 4) continue;
@@ -545,11 +674,12 @@ class Room {
   startMatch() {
     const time = this.modeInfo.time || MATCH_TIME;
     Object.assign(this.match, { over: false, endsAt: this.clock + time, teamScore: [0, 0], winner: '', wave: 0, waveState: 'wait', waveAt: this.clock + 6, infectAt: this.clock + 8, infectDone: false, hillTeam: -1 });
-    this.undead.clear();
+    this.minions.clear();
+    this.grenades = [];
     const list = this.fighters().sort(() => Math.random() - 0.5).sort((a, b) => a.bot - b.bot);
     list.forEach((e, i) => { e.team = this.mode === 'infection' || this.mode === 'horde' ? 0 : i % 2; });
     for (const e of list) {
-      Object.assign(e, { kills: 0, deaths: 0, gunLevel: 0, levelKills: 0, abilityReady: 0, alpha: false });
+      Object.assign(e, { kills: 0, deaths: 0, gunLevel: 0, levelKills: 0, abilityReady: 0, alpha: false, backupLevel: 0 });
       this.spawn(e);
     }
     this.broadcast({ t: 'match', mode: this.mode });
@@ -612,7 +742,7 @@ class Room {
         const first = pick(list);
         first.team = 1;
         first.alpha = true;
-        this.removeUndeadOf(first.id);
+        this.removeMinionsOf(first.id);
         this.broadcast({ t: 'info', text: `☣ ${first.name} is the first infected with 2000 HP! RUN!` });
         this.spawn(first);
       }
@@ -634,7 +764,7 @@ class Room {
           this.makeUndead(-1, 1, s[0] + rand(-0.5, 0.5), 0.05, s[2] + rand(-0.5, 0.5), 150 + m.wave * 30, 40 + m.wave * 4);
         }
         this.broadcast({ t: 'wave', wave: m.wave, count });
-      } else if (m.waveState === 'fight' && ![...this.undead.values()].some(z => z.owner === -1)) {
+      } else if (m.waveState === 'fight' && ![...this.minions.values()].some(z => z.owner === -1)) {
         if (m.wave >= HORDE_WAVES) { this.endMatch('Everyone! You survived all 10 waves!'); return; }
         m.waveState = 'wait';
         m.waveAt = C + 8;
@@ -662,16 +792,22 @@ class Room {
       over: m.over, nextIn: m.over ? Math.max(0, Math.ceil(m.nextAt - C)) : 0, winner: m.winner,
       teamScore: m.teamScore.map(Math.floor), hillTeam: m.hillTeam,
       wave: m.wave, waveIn: this.mode === 'horde' && m.waveState === 'wait' ? Math.max(0, Math.ceil(m.waveAt - C)) : 0,
-      horde: this.mode === 'horde' ? [...this.undead.values()].filter(z => z.owner === -1).length : 0,
+      horde: this.mode === 'horde' ? [...this.minions.values()].filter(z => z.owner === -1).length : 0,
+      nades: this.grenades.map(g => [g.id, r2(g.x), r2(g.y), r2(g.z)]),
       players: this.fighters().map(e => ({
         id: e.id, name: e.name, team: e.team, bot: e.bot ? 1 : 0, col: e.set.color, set: e.set.name,
         x: r2(e.x), y: r2(e.y), z: r2(e.z), yaw: r2(e.yaw), pitch: r2(e.pitch),
         c: e.crouch ? 1 : 0, s: e.slide ? 1 : 0, j: (e.bot ? !e.onGround : e.air) ? 1 : 0,
         hp: Math.max(0, Math.round(e.hp)), mhp: this.maxHp(e), sp: this.isProtected(e) ? 1 : 0, dead: e.dead,
         k: e.kills, d: e.deaths, w: this.currentWeapon(e), lvl: e.gunLevel,
-        inf: this.infected(e) ? 1 : 0, cd: Math.max(0, Math.ceil(e.abilityReady - C)),
+        inf: this.infected(e) ? 1 : 0, cd: Math.max(0, Math.ceil(e.abilityReady - C)), op: e.set.operator,
+        sh: C < (e.shieldUntil || 0) ? 1 : 0, bl: e.backupLevel || 0,
       })),
-      undead: [...this.undead.values()].map(z => ({
+      backup: [...this.minions.values()].filter(z => z.type === 'backup').map(z => ({
+        id: z.id, o: z.owner, team: z.team, name: z.name, role: z.role, lvl: z.lvl, op: z.op, w: z.weapon,
+        x: r2(z.x), y: r2(z.y), z: r2(z.z), yaw: r2(z.yaw), pitch: r2(z.pitch || 0), hp: Math.round(z.hp), j: z.onGround ? 0 : 1,
+      })),
+      undead: [...this.minions.values()].filter(z => z.type === 'undead').map(z => ({
         id: z.id, o: z.owner, team: z.team, x: r2(z.x), y: r2(z.y), z: r2(z.z), yaw: r2(z.yaw),
         rise: Math.min(1, r2((C - z.rise) / 0.8)),
       })),
@@ -694,7 +830,7 @@ class Room {
   }
   leave(p) {
     this.ents.delete(p.id);
-    this.removeUndeadOf(p.id);
+    this.removeMinionsOf(p.id);
     if (p.joined) { this.broadcast({ t: 'info', text: `${p.name} left` }); this.fillBots(); }
     this.checkWin(null);
   }
@@ -718,10 +854,11 @@ class Room {
         if (e.dead) { if (C >= e.respawnAt) this.spawn(e); continue; }
         if (e.bot) this.botThink(e, dt);
       }
-      for (const z of this.undead.values()) {
-        if (C >= z.dieAt || (z.owner !== -1 && !this.ents.has(z.owner))) { this.undead.delete(z.id); this.broadcast({ t: 'undeadDie', id: z.id }); continue; }
-        this.undeadThink(z, dt);
+      for (const z of this.minions.values()) {
+        if (C >= z.dieAt || (z.owner !== -1 && !this.ents.has(z.owner))) { this.minions.delete(z.id); this.broadcast({ t: 'minionDie', id: z.id, gone: 1 }); continue; }
+        if (z.type === 'backup') this.botThink(z, dt); else this.undeadThink(z, dt);
       }
+      this.tickGrenades(dt);
       this.modeTick(dt);
       if (this.mode === 'infection' || this.mode === 'horde') this.checkWin(null);
     }
@@ -856,7 +993,7 @@ wss.on('connection', ws => {
         break;
       case 'weapon': if (room.loadout(p).includes(msg.weapon)) p.weapon = msg.weapon; break;
       case 'shoot': room.handleShot(p, msg); break;
-      case 'ability': room.useAbility(p); break;
+      case 'ability': room.useAbility(p, msg); break;
     }
   });
   ws.on('close', () => { if (room && p) room.leave(p); });

@@ -3,6 +3,8 @@
 // dmr.glb, pistol.glb, revolver.glb, knife.glb) in public/models/guns/ and it replaces the built-in one.
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { buildModel } from './armory.js';
+const { WEAPONS, OPERATORS } = window.GNS;
 
 const mat = (color, rough = 0.7, metal = 0.1) => new THREE.MeshStandardMaterial({ color, roughness: rough, metalness: metal });
 const M = {
@@ -38,7 +40,8 @@ function cyl(r, len, material, x, y, z, parent, r2 = r) {
 }
 
 // ---------- optional .glb gun models ----------
-const GUN_LENGTH = { rifle: 0.85, smg: 0.6, shotgun: 0.95, sniper: 1.2, lmg: 1.0, dmr: 1.0, pistol: 0.22, revolver: 0.3, knife: 0.3 };
+const GUN_LENGTH = {};
+for (const [id, w] of Object.entries(window.GNS.WEAPONS)) GUN_LENGTH[id] = w.len;
 const templates = {};
 export async function loadGunModels() {
   let files = [];
@@ -72,100 +75,60 @@ export async function loadGunModels() {
 }
 export const loadedModels = () => Object.keys(templates);
 
-// Gun points toward -z. Origin is at the grip. A child named "muzzle" marks the barrel tip.
-export function buildGun(type) {
-  if (templates[type]) {
-    const g = templates[type].group.clone(true);
-    const muzzle = new THREE.Object3D();
-    muzzle.name = 'muzzle';
-    muzzle.position.set(0, 0.03, templates[type].muzzleZ);
-    g.add(muzzle);
-    return g;
-  }
+// Armory models, resized to real-life length. The gun points toward -z, the origin is the grip,
+// userData.sight is the height of the sights and a child named "muzzle" marks the barrel tip.
+const armoryCache = new Map();
+function armoryTemplate(id) {
+  if (armoryCache.has(id)) return armoryCache.get(id);
+  const w = WEAPONS[id];
+  const blade = !!w.melee;
+  const pistol = w.len < 0.4 && !blade;
+  const inner = buildModel(id);
+  inner.rotation.y = blade ? -Math.PI / 2 : Math.PI / 2;   // armory guns point along +x, blades along -x
+  const holder = new THREE.Group();
+  holder.add(inner);
+  holder.updateMatrixWorld(true);
+  let box = new THREE.Box3().setFromObject(holder);
+  const size = box.getSize(new THREE.Vector3());
+  holder.scale.setScalar(w.len / Math.max(size.z, 1e-3));
+  holder.updateMatrixWorld(true);
+  box = new THREE.Box3().setFromObject(holder);
+  const front = box.min.z, back = box.max.z, len = back - front;
+  const gripZ = blade ? back - len * 0.18 : back - len * (pistol ? 0.3 : 0.36);
+  const sight = blade ? 0.03 : pistol ? 0.07 : 0.09;
+  holder.position.set(-(box.min.x + box.max.x) / 2, sight - box.max.y, -gripZ);
   const g = new THREE.Group();
-  let muzzleZ = -0.6;
-  switch (type) {
-    case 'rifle':
-      box(0.07, 0.1, 0.5, M.metal, 0, 0.02, -0.12, g);
-      box(0.075, 0.07, 0.25, M.tan, 0, 0.0, -0.32, g);
-      cyl(0.016, 0.22, M.metal, 0, 0.03, -0.55, g);
-      box(0.05, 0.16, 0.08, M.metal2, 0, -0.1, -0.12, g).rotation.x = 0.25;
-      box(0.045, 0.12, 0.06, M.metal, 0, -0.07, 0.04, g).rotation.x = -0.3;
-      box(0.06, 0.09, 0.24, M.tan, 0, 0.0, 0.24, g);
-      box(0.03, 0.04, 0.08, M.metal, 0, 0.09, -0.08, g);
-      muzzleZ = -0.67; break;
-    case 'smg':
-      box(0.07, 0.1, 0.36, M.metal, 0, 0.02, -0.08, g);
-      cyl(0.018, 0.14, M.metal2, 0, 0.03, -0.32, g);
-      box(0.045, 0.2, 0.06, M.metal2, 0, -0.13, -0.06, g);
-      box(0.045, 0.11, 0.06, M.metal, 0, -0.06, 0.06, g).rotation.x = -0.3;
-      box(0.03, 0.05, 0.2, M.metal, 0, 0.0, 0.2, g);
-      box(0.025, 0.035, 0.06, M.metal, 0, 0.085, -0.05, g);
-      muzzleZ = -0.4; break;
-    case 'shotgun':
-      box(0.07, 0.09, 0.32, M.metal, 0, 0.02, -0.05, g);
-      cyl(0.022, 0.55, M.metal, 0, 0.04, -0.45, g);
-      cyl(0.026, 0.22, M.wood, 0, -0.02, -0.38, g);
-      box(0.045, 0.11, 0.06, M.wood, 0, -0.06, 0.08, g).rotation.x = -0.35;
-      box(0.065, 0.1, 0.28, M.wood, 0, -0.01, 0.26, g);
-      box(0.02, 0.025, 0.03, M.metal2, 0, 0.075, -0.68, g);
-      muzzleZ = -0.73; break;
-    case 'lmg':
-      box(0.09, 0.12, 0.55, M.metal, 0, 0.02, -0.1, g);
-      cyl(0.022, 0.4, M.metal, 0, 0.03, -0.55, g);
-      box(0.08, 0.1, 0.12, M.olive, 0, -0.11, -0.12, g);           // ammo box
-      box(0.02, 0.1, 0.02, M.metal2, 0.02, -0.08, -0.6, g).rotation.z = 0.4;   // bipod
-      box(0.02, 0.1, 0.02, M.metal2, -0.02, -0.08, -0.6, g).rotation.z = -0.4;
-      box(0.045, 0.12, 0.06, M.metal, 0, -0.07, 0.06, g).rotation.x = -0.3;
-      box(0.07, 0.1, 0.26, M.olive, 0, 0.0, 0.28, g);
-      box(0.04, 0.05, 0.16, M.metal2, 0, 0.1, -0.12, g);
-      muzzleZ = -0.76; break;
-    case 'dmr':
-      box(0.07, 0.09, 0.5, M.olive, 0, 0.02, -0.1, g);
-      cyl(0.016, 0.4, M.metal, 0, 0.03, -0.55, g);
-      cyl(0.026, 0.24, M.metal2, 0, 0.1, -0.08, g);
-      box(0.045, 0.14, 0.07, M.metal2, 0, -0.1, -0.08, g);
-      box(0.045, 0.12, 0.06, M.metal, 0, -0.07, 0.06, g).rotation.x = -0.3;
-      box(0.065, 0.11, 0.3, M.olive, 0, -0.01, 0.28, g);
-      muzzleZ = -0.76; break;
-    case 'pistol':
-      box(0.04, 0.06, 0.22, M.metal, 0, 0.05, -0.06, g);
-      box(0.038, 0.13, 0.05, M.metal2, 0, -0.03, 0.02, g).rotation.x = -0.2;
-      box(0.015, 0.02, 0.02, M.metal2, 0, 0.09, -0.15, g);
-      muzzleZ = -0.18; break;
-    case 'revolver':
-      cyl(0.016, 0.24, M.metal2, 0, 0.06, -0.14, g);
-      cyl(0.034, 0.06, M.metal, 0, 0.045, -0.02, g);
-      box(0.03, 0.05, 0.1, M.metal2, 0, 0.04, 0.0, g);
-      box(0.038, 0.13, 0.05, M.wood, 0, -0.04, 0.05, g).rotation.x = -0.35;
-      muzzleZ = -0.27; break;
-    case 'knife':
-      box(0.03, 0.035, 0.1, M.metal, 0, 0, 0.0, g);
-      box(0.06, 0.05, 0.015, M.metal2, 0, 0.0, -0.055, g);
-      box(0.008, 0.035, 0.2, M.blade, 0, 0.005, -0.16, g).rotation.x = 0.03;
-      muzzleZ = -0.27; break;
-    case 'sniper':
-      box(0.07, 0.09, 0.45, M.metal, 0, 0.02, -0.08, g);
-      cyl(0.017, 0.65, M.metal, 0, 0.03, -0.62, g);
-      cyl(0.032, 0.32, M.metal2, 0, 0.11, -0.1, g);
-      cyl(0.028, 0.01, M.lens, 0, 0.11, -0.265, g);
-      box(0.02, 0.04, 0.02, M.metal, 0, 0.07, -0.18, g);
-      box(0.02, 0.04, 0.02, M.metal, 0, 0.07, -0.02, g);
-      box(0.05, 0.08, 0.07, M.metal2, 0, -0.07, -0.1, g);
-      box(0.045, 0.12, 0.06, M.wood, 0, -0.06, 0.08, g).rotation.x = -0.3;
-      box(0.065, 0.11, 0.32, M.wood, 0, -0.01, 0.3, g);
-      muzzleZ = -0.96; break;
-    case 'claws':
-      muzzleZ = -0.3; break;
+  g.add(holder);
+  g.userData = { sight, muzzleZ: front - gripZ, len, pistol, blade };
+  g.traverse(o => { if (o.isMesh) o.castShadow = true; });
+  armoryCache.set(id, g);
+  return g;
+}
+export function buildGun(type) {
+  let g;
+  if (templates[type]) {
+    g = templates[type].group.clone(true);
+    g.userData = { sight: 0.09, muzzleZ: templates[type].muzzleZ, len: GUN_LENGTH[type] || 0.8 };
+  } else if (type === 'claws') {
+    g = new THREE.Group();
+    g.userData = { sight: 0.05, muzzleZ: -0.3, len: 0.3, blade: true };
+  } else {
+    const t = armoryTemplate(type);
+    g = t.clone(true);
+    g.userData = { ...t.userData };
   }
   const muzzle = new THREE.Object3D();
   muzzle.name = 'muzzle';
-  muzzle.position.set(0, 0.03, muzzleZ);
+  muzzle.position.set(0, g.userData.sight - 0.035, g.userData.muzzleZ);
   g.add(muzzle);
   return g;
 }
-export const SIGHT_HEIGHT = { rifle: 0.11, smg: 0.1, shotgun: 0.085, pistol: 0.1, sniper: 0.11, knife: 0.05, lmg: 0.13, dmr: 0.1, revolver: 0.09, claws: 0.05 };
-const ALL_GUNS = ['rifle', 'smg', 'shotgun', 'sniper', 'lmg', 'dmr', 'pistol', 'revolver', 'knife', 'claws'];
+export function sightHeight(type) { return armoryCache.get(type)?.userData.sight ?? 0.09; }
+export function grenadeModel() {
+  const g = buildModel('m67');
+  g.scale.setScalar(0.06);
+  return g;
+}
 
 // ---------- first-person view: arms + gun ----------
 export class ViewModel {
@@ -175,13 +138,6 @@ export class ViewModel {
     this.root.add(this.holder);
     this.sleeve = mat(sleeveColor, 0.9, 0);
     this.guns = {};
-    for (const t of ALL_GUNS) {
-      const gun = buildGun(t);
-      gun.traverse(o => { o.castShadow = false; });
-      gun.visible = false;
-      this.holder.add(gun);
-      this.guns[t] = gun;
-    }
     this.rArm = new THREE.Group();
     box(0.09, 0.09, 0.45, this.sleeve, 0.04, -0.06, 0.28, this.rArm);
     this.rHand = box(0.07, 0.08, 0.1, M.glove, 0, -0.05, 0.03, this.rArm);
@@ -212,23 +168,34 @@ export class ViewModel {
     this.flash.visible = false;
     this.holder.add(this.flash);
     this.current = null;
-    this.setWeapon('rifle');
+    this.setWeapon('hk416');
+  }
+  gun(t) {
+    if (!this.guns[t]) {
+      const g = buildGun(t);
+      g.traverse(o => { o.castShadow = false; });
+      g.visible = false;
+      this.holder.add(g);
+      this.guns[t] = g;
+    }
+    return this.guns[t];
   }
   setSleeve(color) { this.sleeve.color.set(color); }
   setWeapon(t) {
     if (this.current) this.guns[this.current].visible = false;
     this.current = t;
-    this.guns[t].visible = true;
+    const gun = this.gun(t);
+    gun.visible = true;
+    const u = gun.userData;
     const claws = t === 'claws';
     this.claws.visible = claws;
     this.rArm.visible = !claws;
-    const pistol = t === 'pistol' || t === 'revolver';
-    const front = { rifle: -0.32, smg: -0.25, shotgun: -0.38, pistol: 0.02, revolver: 0.02, sniper: -0.3, lmg: -0.38, dmr: -0.34, knife: 0, claws: 0 }[t];
-    this.lArm.visible = t !== 'knife' && !claws;
-    this.lArm.position.set(pistol ? -0.01 : 0, pistol ? -0.04 : -0.02, front);
-    this.lArm.rotation.set(0, pistol ? 0.2 : 0, 0);
-    this.flash.position.copy(this.guns[t].getObjectByName('muzzle').position);
+    this.lArm.visible = !u.blade && !claws;
+    this.lArm.position.set(u.pistol ? -0.01 : 0, u.pistol ? -0.05 : -0.03, u.pistol ? 0.02 : -u.len * 0.42);
+    this.lArm.rotation.set(0, u.pistol ? 0.2 : 0, 0);
+    this.flash.position.copy(gun.getObjectByName('muzzle').position);
   }
+  get sight() { return this.guns[this.current]?.userData.sight ?? 0.09; }
 }
 
 // ---------- third-person characters ----------
@@ -265,6 +232,10 @@ export class Avatar {
     this.root.add(this.body);
     this.shirt = zombie ? mat(0x3a3530, 1, 0) : mat(0x888888, 0.9, 0);
     const skin = zombie ? UNDEAD.skin : mat(SKIN[id % SKIN.length], 0.8, 0);
+    this.pants = zombie ? M.pants : mat(0x2e3238, 0.9, 0);
+    this.vestMat = mat(0x3b4232, 0.9, 0);
+    this.gear = mat(0x4f5a3a, 0.8, 0.05);
+    this.band = mat(0xffffff, 0.6, 0);
 
     this.hips = new THREE.Group();
     this.hips.position.y = 0.95;
@@ -272,11 +243,11 @@ export class Avatar {
     const leg = side => {
       const thigh = new THREE.Group();
       thigh.position.x = side * 0.12;
-      box(0.17, 0.46, 0.19, M.pants, 0, -0.23, 0, thigh);
+      box(0.17, 0.46, 0.19, this.pants, 0, -0.23, 0, thigh);
       const knee = new THREE.Group();
       knee.position.y = -0.46;
       thigh.add(knee);
-      box(0.15, 0.44, 0.17, M.pants, 0, -0.22, 0, knee);
+      box(0.15, 0.44, 0.17, this.pants, 0, -0.22, 0, knee);
       box(0.16, 0.09, 0.28, M.boot, 0, -0.45, -0.05, knee);
       this.hips.add(thigh);
       return { thigh, knee };
@@ -289,10 +260,17 @@ export class Avatar {
     box(0.46, 0.6, 0.26, this.shirt, 0, 0.3, 0, this.spine);
     box(0.48, 0.08, 0.28, M.boot, 0, 0.02, 0, this.spine);
     if (!zombie) {
-      box(0.5, 0.42, 0.3, M.vest, 0, 0.36, 0, this.spine);
-      box(0.34, 0.36, 0.14, M.olive, 0, 0.34, 0.2, this.spine);     // backpack
-      box(0.12, 0.1, 0.05, M.olive, -0.12, 0.25, -0.17, this.spine); // pouches
-      box(0.12, 0.1, 0.05, M.olive, 0.12, 0.25, -0.17, this.spine);
+      this.vest = box(0.5, 0.42, 0.3, this.vestMat, 0, 0.36, 0, this.spine);
+      this.pack = box(0.34, 0.36, 0.14, this.gear, 0, 0.34, 0.2, this.spine);   // backpack
+      box(0.12, 0.1, 0.05, this.gear, -0.12, 0.25, -0.17, this.spine);         // pouches
+      box(0.12, 0.1, 0.05, this.gear, 0.12, 0.25, -0.17, this.spine);
+      this.cross = new THREE.Group();                                          // medic cross
+      const red = mat(0xd03030, 0.6, 0), white = mat(0xffffff, 0.6, 0);
+      box(0.13, 0.13, 0.01, white, 0, 0.42, -0.156, this.cross);
+      box(0.09, 0.03, 0.012, red, 0, 0.42, -0.162, this.cross);
+      box(0.03, 0.09, 0.012, red, 0, 0.42, -0.163, this.cross);
+      this.cross.visible = false;
+      this.spine.add(this.cross);
     } else {
       box(0.3, 0.2, 0.27, skin, 0.08, 0.15, -0.01, this.spine);
     }
@@ -303,8 +281,23 @@ export class Avatar {
     box(0.27, 0.3, 0.27, skin, 0, 0.2, 0, this.head);
     box(0.06, 0.05, 0.05, skin, 0, 0.18, -0.15, this.head);           // nose
     if (!zombie) {
-      box(0.31, 0.13, 0.31, M.helmet, 0, 0.36, 0.01, this.head);
-      box(0.33, 0.03, 0.34, M.helmet, 0, 0.3, 0, this.head);
+      this.helmetMat = mat(0x3e4636, 0.7, 0.1);
+      this.helmet = new THREE.Group();
+      box(0.31, 0.13, 0.31, this.helmetMat, 0, 0.36, 0.01, this.helmet);
+      box(0.33, 0.03, 0.34, this.helmetMat, 0, 0.3, 0, this.helmet);
+      this.head.add(this.helmet);
+      // hair with a ponytail (women operators)
+      const hairMat = mat([0x2b1a10, 0x4a2a14, 0x111111, 0x8a5a2a][id % 4], 0.9, 0);
+      this.hair = new THREE.Group();
+      box(0.29, 0.08, 0.29, hairMat, 0, 0.37, 0.01, this.hair);
+      box(0.29, 0.2, 0.06, hairMat, 0, 0.26, 0.13, this.hair);
+      box(0.08, 0.22, 0.07, hairMat, 0, 0.18, 0.2, this.hair);
+      this.hair.visible = false;
+      this.head.add(this.hair);
+      this.goggles = new THREE.Group();
+      for (const x of [-0.06, 0.06]) box(0.06, 0.06, 0.1, M.metal, x, 0.4, -0.17, this.goggles);
+      this.goggles.visible = false;
+      this.head.add(this.goggles);
     }
     const eyeMat = zombie ? UNDEAD.eye : M.eye;
     box(0.05, 0.035, 0.02, eyeMat, -0.065, 0.23, -0.136, this.head);
@@ -316,6 +309,7 @@ export class Avatar {
       sh.position.set(side * 0.3, 0.52, 0);
       sh.rotation.set(upperRot, yaw, 0);
       box(0.13, 0.32, 0.14, this.shirt, 0, -0.15, 0, sh);
+      if (!zombie) box(0.14, 0.06, 0.15, this.band, 0, -0.08, 0, sh);         // armband (team / set color)
       const el = new THREE.Group();
       el.position.y = -0.3;
       el.rotation.x = foreRot;
@@ -354,8 +348,27 @@ export class Avatar {
     this.guns[t].visible = true;
     this.weapon = t;
   }
-  setLook(name, shirtColor, tagColor) {
-    this.shirt.color.set(shirtColor);
+  // operator outfit from the armory (colors, woman/man, backpack, goggles, medic cross)
+  setOutfit(opId) {
+    if (this.kind !== 'soldier' || this.op === opId) return;
+    this.op = opId;
+    const o = OPERATORS[opId] || OPERATORS.man;
+    const c = new THREE.Color(o.color);
+    this.shirt.color.copy(c);
+    this.vestMat.color.copy(c).multiplyScalar(0.75);
+    this.pants.color.copy(c).multiplyScalar(0.6);
+    this.gear.color.copy(c).multiplyScalar(0.85);
+    this.helmetMat.color.copy(c).multiplyScalar(0.8);
+    this.helmet.visible = !o.woman;
+    this.hair.visible = !!o.woman;
+    this.goggles.visible = !!o.goggles;
+    this.pack.visible = !!o.pack;
+    this.cross.visible = !!o.medic;
+    const slim = o.woman ? 0.9 : 1;
+    this.spine.scale.set(slim, 1, slim);
+  }
+  setLook(name, bandColor, tagColor) {
+    if (this.kind === 'soldier') this.band.color.set(bandColor); else this.shirt.color.set(bandColor);
     const key = name + tagColor;
     if (key !== this.tagText) {
       if (this.tag) { this.root.remove(this.tag); this.tag.material.map.dispose(); this.tag.material.dispose(); }
