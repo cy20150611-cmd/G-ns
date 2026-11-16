@@ -4,6 +4,7 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { buildModel } from './armory.js';
+import { decorateZombieAvatar } from './zombies.js';
 const { WEAPONS, OPERATORS } = window.GNS;
 
 const mat = (color, rough = 0.7, metal = 0.1) => new THREE.MeshStandardMaterial({ color, roughness: rough, metalness: metal });
@@ -146,15 +147,29 @@ export class ViewModel {
     box(0.09, 0.09, 0.5, this.sleeve, -0.12, -0.1, 0.12, this.lArm).rotation.y = -0.45;
     this.lHand = box(0.07, 0.07, 0.1, M.glove, 0, -0.04, -0.12, this.lArm);
     this.holder.add(this.lArm);
-    // infected claws: two green hands
+    // Infector hands match the larger, fiercer third-person model.
     this.claws = new THREE.Group();
-    const skin = mat(0x7d9a5c, 0.95, 0);
-    for (const s of [-1, 1]) {
+    const skin = mat(0x555f63, 0.95, 0), nail = mat(0xb3ad91, 0.8, 0);
+    for (const side of [-1, 1]) {
       const a = new THREE.Group();
-      box(0.09, 0.09, 0.5, skin, 0, 0, 0.2, a);
-      for (let f = -1; f <= 1; f++) box(0.015, 0.015, 0.09, M.eye, f * 0.025, -0.02, -0.08, a);
-      a.position.set(s * 0.12, -0.02, -0.05);
-      a.rotation.y = -s * 0.15;
+      const forearm = new THREE.Mesh(new THREE.CylinderGeometry(0.043, 0.06, 0.4, 12), skin);
+      forearm.rotation.x = Math.PI / 2;
+      forearm.position.z = 0.18;
+      a.add(forearm);
+      const palm = new THREE.Mesh(new THREE.SphereGeometry(1, 12, 8), skin);
+      palm.scale.set(0.065, 0.035, 0.08);
+      palm.position.z = -0.035;
+      a.add(palm);
+      for (let f = 0; f < 4; f++) {
+        const finger = box(0.019, 0.024, 0.1, skin, (f - 1.5) * 0.028, -0.005, -0.1, a);
+        finger.rotation.y = (f - 1.5) * -0.07;
+        const claw = new THREE.Mesh(new THREE.ConeGeometry(0.012, 0.12, 6), nail);
+        claw.rotation.x = -Math.PI / 2;
+        claw.position.set((f - 1.5) * 0.031, -0.013, -0.2);
+        a.add(claw);
+      }
+      a.position.set(side * 0.15, -0.02, -0.05);
+      a.rotation.y = -side * 0.22;
       this.claws.add(a);
     }
     this.claws.visible = false;
@@ -339,6 +354,15 @@ export class Avatar {
     this.velF = 0; this.velS = 0;
     this.first = true;
     this.time = Math.random() * 10;
+    if (zombie) {
+      decorateZombieAvatar(this, kind, id, 'game');
+      if (kind === 'infected') {
+        this.armR.base = [1.2, 0.18, 0.15];
+        this.armL.base = [1.05, 0.32, -0.2];
+        this.armR.sh.rotation.z = 0.22;
+        this.armL.sh.rotation.z = -0.26;
+      }
+    }
   }
 
   setWeapon(t) {
@@ -458,7 +482,8 @@ export class Avatar {
 
     // upper body: aim pitch, lean forward when running, sway side to side, flinch
     const zombie = this.kind !== 'soldier';
-    this.leanAmt += ((run * 0.25 + (zombie ? 0.25 : 0)) * Math.max(0, dirF) - this.leanAmt) * Math.min(1, dt * 6);
+    const infector = this.kind === 'infected';
+    this.leanAmt += ((run * 0.25 + (infector ? 0.42 : zombie ? 0.25 : 0)) * Math.max(0, dirF) - this.leanAmt) * Math.min(1, dt * 6);
     this.spine.rotation.x = (zombie ? 0 : this.pitch * 0.55) - sl * 0.35 - this.leanAmt * 0.6 - this.flinch * 0.25 + breathe * 2;
     this.spine.rotation.z = Math.sin(ph) * 0.05 * moving - dirS * 0.08 * moving;
     this.spine.rotation.y = -Math.sin(ph) * 0.08 * moving;
@@ -469,8 +494,11 @@ export class Avatar {
     const atk = Math.sin((this.attackT / 0.35) * Math.PI);
     const ar = this.armR, al = this.armL;
     if (zombie) {
-      ar.sh.rotation.x = ar.base[0] + Math.sin(this.time * 4) * 0.08 + atk * 0.8;
-      al.sh.rotation.x = al.base[0] + Math.cos(this.time * 4) * 0.08 + atk * 0.6;
+      const cadence = infector ? 6 : 3;
+      ar.sh.rotation.x = ar.base[0] + Math.sin(this.time * cadence) * 0.08 + atk * (infector ? 1.1 : 0.65);
+      al.sh.rotation.x = al.base[0] + Math.cos(this.time * cadence) * 0.08 + atk * (infector ? 0.9 : 0.5);
+      this.head.rotation.z = Math.sin(this.time * (infector ? 2.7 : 1.4)) * (infector ? 0.04 : 0.1);
+      if (infector) this.spine.rotation.x -= 0.1;
     } else {
       ar.sh.rotation.x = ar.base[0] + Math.sin(ph * 2) * 0.03 * moving;
       al.sh.rotation.x = al.base[0] + Math.sin(ph * 2) * 0.03 * moving;
